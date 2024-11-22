@@ -515,8 +515,19 @@ def check_model(
         correct_flat = reference_to_expect(actual_flat, correct_flat)
         correct = tree_unflatten(correct_flat, correct_spec)
 
+    # Allow assert_equal to be a custom function, instead of True or False, for
+    # cases where differences may not indicate incorrectness.
     if assert_equal:
-        self.assertEqual(
+        if callable(assert_equal):
+
+            def custom_assert_with_self(*args, **kwargs):
+                assert_equal(self, *args, **kwargs)
+
+            assert_equal_fn = custom_assert_with_self
+        else:
+            assert_equal_fn = self.assertEqual
+
+        assert_equal_fn(
             actual,
             correct,
             atol=atol,
@@ -525,6 +536,7 @@ def check_model(
             exact_dtype=exact_dtype,
         )
         # In case of input mutations, check that inputs are the same
+        # (This never uses a custom assert_equal fn.)
         self.assertEqual(
             ref_inputs,
             example_inputs,
@@ -3389,6 +3401,13 @@ class CommonTemplate:
     @skip_if_halide  # only 32-bit indexing
     @largeTensorTest("4GB", inductor=True)
     def test_large_pointwise(self):
+        # If this is running with cpp_wrapper, the auto-tuning step will generate an
+        # additional array of the same size as the input.  Numbers derived
+        # experimentally.
+        required_memory = 2**32 + 2**31 + 2**15 if config.cpp_wrapper else 2**31 + 2**15
+        if not _has_sufficient_memory(self.device, required_memory):
+            raise unittest.SkipTest("insufficient memory")
+
         def fn(a):
             return a + 1
 
@@ -4960,9 +4979,11 @@ class CommonTemplate:
 
         eager_version_counters_after = [
             # TODO: remove the + 1 after https://github.com/pytorch/pytorch/issues/120622 is fixed
-            buffer._version + 1
-            if k in ["m.running_mean", "m.running_var"]
-            else buffer._version
+            (
+                buffer._version + 1
+                if k in ["m.running_mean", "m.running_var"]
+                else buffer._version
+            )
             for k, buffer in model_for_eager.named_buffers()
         ]
 
@@ -11860,6 +11881,12 @@ class CommonTemplate:
         Currently inductor will skip such bad configs and pick the best one
         from the remaining configs.
         """
+        # If this is running with cpp_wrapper, the auto-tuning step will generate an
+        # additional array of the same size as the input.  Numbers derived
+        # experimentally.
+        required_memory = 2**34 + 2**32 + 2**31 if config.cpp_wrapper else 2**33 + 2**32 + 2**31
+        if not _has_sufficient_memory(self.device, required_memory):
+            raise unittest.SkipTest("insufficient memory")
 
         @torch.compile
         def fn(x, y):
@@ -12289,6 +12316,13 @@ class CommonTemplate:
 
     @largeTensorTest("1GB", inductor=True)
     def test_large_grid(self):
+        # If this is running with cpp_wrapper, the auto-tuning step will generate an
+        # additional array of the same size as the input.  Numbers derived
+        # experimentally.
+        required_memory = 2**30 + 2**29 + 2**15 if config.cpp_wrapper else 2**30 + 2**15
+        if not _has_sufficient_memory(self.device, required_memory):
+            raise unittest.SkipTest("insufficient memory")
+
         # https://github.com/pytorch/pytorch/issues/123210
         def fn(primals_5):
             view = torch.ops.aten.reshape.default(primals_5, [-1, 2, 4])
@@ -13620,9 +13654,11 @@ if RUN_GPU:
                 ),
                 (
                     fn3,
-                    "triton_poi_fused_layer_norm_relu"
-                    if torch._dynamo.config.inline_inbuilt_nn_modules
-                    else "triton_poi_fused_LayerNorm_ReLU",
+                    (
+                        "triton_poi_fused_layer_norm_relu"
+                        if torch._dynamo.config.inline_inbuilt_nn_modules
+                        else "triton_poi_fused_LayerNorm_ReLU"
+                    ),
                     (torch.randn(4, 4, device=GPU_TYPE),),
                 ),
             ]
