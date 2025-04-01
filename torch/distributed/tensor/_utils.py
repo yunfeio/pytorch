@@ -122,8 +122,14 @@ def compute_local_shape_and_global_offset(
         # TODO: this logic can be applied to contiguous sharding as well
         strided_sharding = any(isinstance(p, _StridedShard) for p in placements)
         if strided_sharding:
+            # TODO(whc): Fix this for uneven padding case
+            #  - local_shapes should not include padding
+            #  - develop a test based off DCP usage, see:
+            #       impl: https://github.com/pytorch/pytorch/pull/132391
+            #       DCP test: https://github.com/pytorch/pytorch/pull/131408
             strided_part_seen = [False] * len(global_shape)
             strided_part_end = [False] * len(global_shape)
+
             for idx, placement in enumerate(placements):
                 mesh_dim_size = mesh.size(idx)
                 if isinstance(placement, Shard):
