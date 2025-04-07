@@ -31,6 +31,7 @@
 
 #include <ck/tensor_operation/gpu/device/impl/device_gemm_multiple_d_xdl_cshuffle_v3.hpp>
 #include <ck/tensor_operation/gpu/device/impl/device_gemm_wmma.hpp>
+#include <iostream>
 
 // Define commonly used types.
 template <ck::index_t... Is>
@@ -41,6 +42,56 @@ using Col = ck::tensor_layout::gemm::ColumnMajor;
 using PassThrough = ck::tensor_operation::element_wise::PassThrough;
 
 namespace at::native {
+
+
+enum class KernelSize { Small, Medium, Large };
+inline std::ostream& operator<<(std::ostream& os, KernelSize size) {
+    switch (size) {
+        case KernelSize::Small:
+            os << "Small";
+            break;
+        case KernelSize::Medium:
+            os << "Medium";
+            break;
+        case KernelSize::Large:
+            os << "Large";
+            break;
+        default:
+            os << "Unknown";
+    }
+    return os;
+}
+
+// Returns whether to use Small, Medium, or Large kernel template and
+// whether padding is required
+inline std::tuple<KernelSize, bool> get_kernel_size(
+                                int64_t M,
+                                int64_t N,
+                                int64_t K )
+{
+  bool use_small_kernel = ( M <= 128 );
+  bool use_large_kernel =
+    ((M >= 4096 && N >= 4096) || (M >= 8192 && N >= 2048) ||
+     (N >= 8192 && M >= 2048) || (K >= 8192 && M >= 2048 && N >= 2048));
+  bool use_pad;
+  if(use_small_kernel) {
+    std::cout << "SMALL KERNEL TO BE USED" << std::endl;
+    use_pad = (M % 32 != 0) || (N % 128 != 0) || (K % 128 != 0);
+    return {KernelSize::Small, use_pad};
+
+  } else if (use_large_kernel) {
+    std::cout << "LARGE KERNEL TO BE USED" << std::endl;
+    use_pad = (M % 256 != 0) || (N % 128 != 0) || (K % 64 != 0);
+    return {KernelSize::Large, use_pad};
+  } else { // Medium gemm
+    std::cout << "MEDIUM KERNEL TO BE USED" << std::endl;
+    use_pad = (M % 128 != 0) || (N % 128 != 0) || (K % 64 != 0);
+    return {KernelSize::Medium, use_pad};
+  }
+}
+
+
+
 
 // Elementwise Operators
 struct AlphaBetaAdd
@@ -110,6 +161,7 @@ template <
     bool TRANSA = false,
     bool TRANSB = false>
 void gemm_impl(CUDABLAS_GEMM_ARGTYPES(Dtype)) {
+  std::cout << "Inside ck_gemm_template::gemm_impl" << std::endl;
   // Get input information.
   int M = m;
   int N = n;
@@ -232,7 +284,7 @@ void gemm_impl(CUDABLAS_GEMM_ARGTYPES(Dtype)) {
             "not support this GEMM problem");
  }
 
-
+ std::cout << "ABOUT TO CALL CK" << std::endl;
  auto stream = at::cuda::getCurrentHIPStream().stream();
  invoker.Run(argument, StreamConfig{stream, false});
 }

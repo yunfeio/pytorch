@@ -16,7 +16,9 @@ void dispatch_bfloat16_gemm(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
   // TODO add more configurations. Optimize.
   bool transa_ = std::tolower(transa) != 'n';
   bool transb_ = std::tolower(transb) != 'n';
-
+  auto [size, use_pad] = get_kernel_size(m, n, k);
+  std::cout << "kernel size: " << size << std::endl;
+  std::cout << "use_padding: " << use_pad << std::endl;
   if (use_padding) {
     if (m <= 128) {
       if(transa_ && transb_) {
