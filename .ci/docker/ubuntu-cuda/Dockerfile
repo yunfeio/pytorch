@@ -123,7 +123,6 @@ COPY --from=sccache /opt/cache /opt/cache
 ENV PATH /opt/cache/bin:$PATH
 
 COPY --from=nccl /usr/local/cuda /usr/local/cuda
-COPY --from=nccl /usr/local/nvidia /usr/local/nvidia
 
 ENV USE_SYSTEM_NCCL=1
 ENV NCCL_INCLUDE_DIR="/usr/local/cuda/include/"
