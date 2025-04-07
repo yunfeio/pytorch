@@ -12,7 +12,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/hip/impl/HIPStreamMasqueradingAsCUDA.h>
-#include <ATen/native/hip/ck_gemm.h>
+#include <ATen/native/hip/ck_gemm/ck_gemm.h>
 #include <ATen/native/hip/ck_types.h>
 
 #include <ck/ck.hpp>
