@@ -4,7 +4,7 @@ import operator
 from collections import abc as container_abcs, OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from itertools import chain, islice
-from typing import Any, Optional, overload, TypeVar, Union
+from typing import Any, Optional, overload, TypeVar, Union, Generic
 from typing_extensions import deprecated, Self
 
 import torch
@@ -51,7 +51,7 @@ class Container(Module):
             self.add_module(key, value)
 
 
-class Sequential(Module):
+class Sequential(Module, Generic[T]):
     r"""A sequential container.
 
     Modules will be added to it in the order they are passed in the
@@ -124,6 +124,14 @@ class Sequential(Module):
             raise IndexError(f"index {idx} is out of range")
         idx %= size
         return next(islice(iterator, idx, None))
+
+    @overload
+    def __getitem__(self, idx: int) -> T:
+        ...
+
+    @overload
+    def __getitem__(self, idx: slice) -> "Sequential":
+        ...
 
     @_copy_to_script_wrapper
     def __getitem__(self, idx: Union[slice, int]) -> Union["Sequential", T]:
