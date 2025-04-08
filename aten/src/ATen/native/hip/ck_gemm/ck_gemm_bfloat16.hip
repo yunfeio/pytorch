@@ -10,6 +10,7 @@ using S = ck::Sequence<Is...>;
 namespace at::native {
 
 void dispatch_bfloat16_gemm(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
+  //TODO_ANDY: this logic will mostly move to the individual kernels and be replaced with the size selection
   // If any of the shapes cant be tiled, we must use padding.
   bool use_padding = ((m % 256 != 0) || (n % 128 != 0) || (k % 64 != 0));
   // Dispatch to best implementation.
@@ -24,37 +25,37 @@ void dispatch_bfloat16_gemm(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
       if(transa_ && transb_) {
          gemm_impl<
             at::BFloat16,
-            256,
-            128,
-            128,
-            64,
-            8,
-            8,
-            32,
-            32,
-            2,
-            2,
-            S<8,32,1>,
-            S<0,2,1>,
-            S<0,2,1>,
-            1,
-            4,
-            8,
-            0,
-            S<8,32,1>,
-            S<1,0,2>,
-            S<1,0,2>,
-            2,
-            8,
-            8,
-            0,
-            1,
-            1,
-            S<1, 32, 1, 8>,
-            S<4>,
-            true,
-            true,
-            true>
+            256,            // BLOCK_SIZE
+            128,            // MBLOCK
+            128,            // NBLOCK
+            64,             // KBLOCK
+            8,              // AK1
+            8,              // BK1
+            32,             // MPER_XDL
+            32,             // NPER_XDL
+            2,              // MPER_WAVE
+            2,              // NPER_WAVE
+            S<8,32,1>,      // ABLOCK_CLUSTER_LENS
+            S<0,2,1>,       // ABLOCK_CLUSTER_ORDER
+            S<0,2,1>,       // ABLOCK_SRC_ORDER
+            1,              // ABLOCK_VECTOR_DIM
+            4,              // ABLOCK_SCALAR_VEC
+            8,              // ABLOCK_SCALAR_VEC_AK1
+            0,              // ABLOCK_LDS_EXTRAM
+            S<8,32,1>,      // BBLOCK_CLUSTER_LENS
+            S<1,0,2>,       // BBLOCK_CLUSTER_ORDER
+            S<1,0,2>,       // BBLOCK_SRC_ORDER
+            2,              // BBLOCK_VECTOR_DIM
+            8,              // BBLOCK_SCALAR_VEC
+            8,              // BBLOCK_SCALAR_VEC_AK1
+            0,              // BBLOCK_LDS_EXTRAN
+            1,              // CMPER_WAVE
+            1,              // CNPER_WAVE
+            S<1, 32, 1, 8>, // BLOCK_CLUSTER_LENS
+            S<4>,           // CDE_SCALAR_VEC
+            true,           // PADDING
+            true,           // TRANSA
+            true>           // TRANSB
             (CUDABLAS_GEMM_ARGS(at::BFloat16));
       }
       else if(transa_ && !transb_) {
