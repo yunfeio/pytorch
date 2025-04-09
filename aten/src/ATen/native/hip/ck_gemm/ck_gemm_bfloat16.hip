@@ -2,6 +2,7 @@
 
 #include <ATen/native/hip/ck_gemm/ck_gemm.h>
 #include <ATen/native/hip/ck_gemm/ck_gemm_template.h>
+#include <ATen/native/hip/ck_gemm/ck_gemm_kernels/ck_kernel_collection.h>
 #include <ck/utility/sequence.hpp>
 
 template <ck::index_t... Is>
@@ -12,9 +13,28 @@ namespace at::native {
 void dispatch_bfloat16_gemm(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
   //TODO_ANDY: this logic will mostly move to the individual kernels and be replaced with the size selection
   // If any of the shapes cant be tiled, we must use padding.
-  bool use_padding = ((m % 256 != 0) || (n % 128 != 0) || (k % 64 != 0));
   // Dispatch to best implementation.
-  // TODO add more configurations. Optimize.
+
+  // Determine padding and kernel size
+  auto [kernel_size, use_padding] = get_kernel_size(m, n, k);
+  std::cout << kernel_size << "" << use_padding << std::endl;
+  if (kernel_size == KernelSize::Small) {
+    ck_gemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_4_Intrawave_v3(
+                                            CUDABLAS_GEMM_ARGS(at::BFloat16), use_padding);
+  } else if (kernel_size == KernelSize::Large) {
+    ck_gemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_4_Intrawave_v3(
+                                            CUDABLAS_GEMM_ARGS(at::BFloat16), use_padding);
+  } else { // kernel_size == KernelSize::Medium
+    ck_gemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x32x1x8_4_Intrawave_v3(
+                                            CUDABLAS_GEMM_ARGS(at::BFloat16), use_padding);
+  }
+
+
+
+}
+  /*
+
+  bool use_padding = ((m % 256 != 0) || (n % 128 != 0) || (k % 64 != 0));
   bool transa_ = std::tolower(transa) != 'n';
   bool transb_ = std::tolower(transb) != 'n';
   auto [size, use_pad] = get_kernel_size(m, n, k);
@@ -472,6 +492,7 @@ void dispatch_bfloat16_gemm(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
   }
 }
 
+*/
 void dispatch_bfloat16_gemm_wmma(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
   // If any of the shapes cant be tiled, we must use padding.
   bool use_padding = ((m % 256 != 0) || (n % 128 != 0) || (k % 64 != 0));
@@ -770,7 +791,6 @@ void dispatch_bfloat16_gemm_wmma(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
       }
   }
 }
-
 
 template <>
 void gemm_internal_ck<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
