@@ -64,6 +64,7 @@ inline std::ostream& operator<<(std::ostream& os, KernelSize size) {
 
 // Returns whether to use Small, Medium, or Large kernel template and
 // whether padding is required
+// TODO_ANDY: CALL FROM ck_gemm_bfloat16.hip::dispatch_bfloat16_gemm
 inline std::tuple<KernelSize, bool> get_kernel_size(
                                 int64_t M,
                                 int64_t N,
