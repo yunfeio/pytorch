@@ -82,9 +82,8 @@ cmake_policy(SET CMP0057 NEW) # if IN_LIST
 
 if(NOT "$ENV{OMP_PREFIX}" STREQUAL "")
   set(OpenMP_PREFIX "$ENV{OMP_PREFIX}")
-elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin" AND IS_DIRECTORY /opt/homebrew/Cellar/libomp)
-  file(GLOB HOMEBREW_OMP_VERSIONS "/opt/homebrew/Cellar/libomp/*")
-  list(GET HOMEBREW_OMP_VERSIONS 0 OpenMP_PREFIX)
+elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin" AND EXISTS /opt/homebrew/opt/libomp)
+  set(OpenMP_PREFIX "/opt/homebrew/opt/libomp")
 endif()
 
 function(_OPENMP_FLAG_CANDIDATES LANG)
@@ -92,7 +91,13 @@ function(_OPENMP_FLAG_CANDIDATES LANG)
     unset(OpenMP_FLAG_CANDIDATES)
 
     set(OMP_FLAG_GNU "-fopenmp")
-    set(OMP_FLAG_Clang "-fopenmp=libomp" "-fopenmp=libiomp5" "-fopenmp")
+    if(CMAKE_${LANG}_COMPILER_ID STREQUAL "Clang" AND CMAKE_${LANG}_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+      # clang-cl specific flags
+      set(OMP_FLAG_Clang "-Xclang -fopenmp=libomp" "-Xclang -fopenmp=libiomp5" "-Xclang -fopenmp")
+    else()
+      # regular clang flags
+      set(OMP_FLAG_Clang "-fopenmp=libomp" "-fopenmp=libiomp5" "-fopenmp")
+    endif()
 
     if(WIN32)
       # Prefer Intel OpenMP header which can be provided by CMAKE_INCLUDE_PATH.

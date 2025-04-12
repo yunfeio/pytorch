@@ -3,7 +3,6 @@
 #include <ATen/DynamicLibrary.h>
 #include <ATen/code_template.h>
 #include <c10/util/Exception.h>
-#include <c10/util/env.h>
 #include <torch/csrc/jit/codegen/fuser/compiler.h>
 #include <torch/csrc/jit/codegen/fuser/cpu/temp_file.h>
 #include <optional>
@@ -41,23 +40,8 @@ constexpr int so_suffix_len = 3;
 constexpr int cpp_suffix_len = 4;
 #endif
 
-intptr_t run(const std::string& cmd);
-
-static bool programExists(const std::string& program) {
-  std::stringstream ss;
-  c10::printQuotedString(ss, program);
-  at::jit::TemplateEnv env;
-  env.s("program", ss.str());
-  std::string cmd = format(check_exists_string, env);
 #ifdef _MSC_VER
-  return (run(cmd.c_str()) == 0);
-#else
-  return (system(cmd.c_str()) == 0);
-#endif
-}
-
-#ifdef _MSC_VER
-std::optional<std::wstring> exec(const std::wstring& cmd) {
+static std::optional<std::wstring> exec(const std::wstring& cmd) {
   std::array<wchar_t, 128> buffer;
   std::wstring result;
   std::unique_ptr<FILE, decltype(&_pclose)> pipe(
@@ -77,7 +61,7 @@ inline std::wstring& rtrim(std::wstring& s, const wchar_t* t = L" \t\n\r\f\v") {
   return s;
 }
 
-void activate() {
+static void activate() {
   wchar_t* root = nullptr;
   std::wstring cmd;
   std::optional<std::wstring> exec_out;
@@ -144,9 +128,9 @@ void activate() {
   }
 }
 
-intptr_t run(const std::string& cmd) {
+static intptr_t run(const std::string& cmd) {
   // Getting the path of `cmd.exe`
-  wchar_t* comspec = _wgetenv(L"COMSPEC");
+  const wchar_t* comspec = _wgetenv(L"COMSPEC");
   if (!comspec) {
     comspec = L"C:\\Windows\\System32\\cmd.exe";
   }
@@ -169,14 +153,27 @@ intptr_t run(const std::string& cmd) {
 }
 #endif
 
+static bool programExists(const std::string& program) {
+  std::stringstream ss;
+  c10::printQuotedString(ss, program);
+  at::jit::TemplateEnv env;
+  env.s("program", ss.str());
+  std::string cmd = format(check_exists_string, env);
+#ifdef _MSC_VER
+  return (run(cmd.c_str()) == 0);
+#else
+  return (system(cmd.c_str()) == 0);
+#endif
+}
+
 // A single compiler config is accessed through getConfig() (below)
 // Controls compilation options and may be updated based on the result
 // of compilation attempts.
 struct CompilerConfig {
   CompilerConfig() {
-    const auto cxx_env = c10::utils::get_env("CXX");
-    if (cxx_env) {
-      cxx = cxx_env.value();
+    const char* cxx_env = getenv("CXX");
+    if (cxx_env != nullptr) {
+      cxx = cxx_env;
     }
 
 #ifdef _MSC_VER
@@ -354,5 +351,5 @@ static std::shared_ptr<FusedKernel> createFusionKernel(
       has_random);
 }
 
-RegisterFusionBackend reg(DeviceType::CPU, createFusionKernel);
+static RegisterFusionBackend reg(DeviceType::CPU, createFusionKernel);
 } // namespace torch::jit::fuser::cpu

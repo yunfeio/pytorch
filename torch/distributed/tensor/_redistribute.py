@@ -73,7 +73,7 @@ def _gen_transform_infos_non_cached(
             if i < device_mesh.ndim - 1:
                 # calculate and save the logical shape for this sharding
                 mesh_dim_size = device_mesh.size(mesh_dim=i)
-                local_shard_size, _ = src._local_shard_size_on_dim(
+                local_shard_size, _ = src._local_shard_size_and_offset(
                     current_logical_shape[src.dim],
                     mesh_dim_size,
                     my_coordinate[i],
@@ -231,9 +231,9 @@ def redistribute_local_tensor(
                     local_tensor, device_mesh, i, my_coordinate[i]
                 )
             else:
-                assert (
-                    current.is_shard()
-                ), f"Current placement should be shard but found {current}"
+                assert current.is_shard(), (
+                    f"Current placement should be shard but found {current}"
+                )
                 shard_spec = cast(Shard, current)
                 if shard_spec.dim != target_placement.dim:
                     new_local_tensor = shard_spec._to_new_shard_dim(

@@ -3037,7 +3037,8 @@ def ctc_loss(
             The logarithmized probabilities of the outputs
             (e.g. obtained with :func:`torch.nn.functional.log_softmax`).
         targets: :math:`(N, S)` or `(sum(target_lengths))`.
-            Targets cannot be blank. In the second form, the targets are assumed to be concatenated.
+                May be an empty tensor if all entries in `target_lengths` are zero.
+                In the second form, the targets are assumed to be concatenated.
         input_lengths: :math:`(N)` or :math:`()`.
             Lengths of the inputs (must each be :math:`\leq T`)
         target_lengths: :math:`(N)` or :math:`()`.
@@ -5301,9 +5302,9 @@ See also `One-hot on Wikipedia`_ .
 
 Arguments:
     tensor (LongTensor): class values of any shape.
-    num_classes (int):  Total number of classes. If set to -1, the number
+    num_classes (int, optional):  Total number of classes. If set to -1, the number
         of classes will be inferred as one greater than the largest class
-        value in the input tensor.
+        value in the input tensor. Default: -1
 
 Returns:
     LongTensor that has one more dimension with 1 values at the
