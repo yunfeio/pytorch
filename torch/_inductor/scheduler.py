@@ -784,12 +784,13 @@ class BaseSchedulerNode:
     def estimate_flops(self) -> int | None:
         # mypy isn't smart enough to infer from ExternKernel that self.node.inputs
         # and self.node.fx_node exists
-        kern: ExternKernel = self.node
 
-        op = kernel_name_to_op(getattr(kern, "python_kernel_name", ""))
+        op = kernel_name_to_op(getattr(self.node, "python_kernel_name", ""))
 
         if not isinstance(self.node, ExternKernel) or op is None:
             return None
+
+        kern: ExternKernel = self.node
 
         if any(len(free_unbacked_symbols(n.get_numel())) > 0 for n in kern.inputs):
             # Tensor has unbacked symints, we don't know how to estimate
@@ -876,13 +877,13 @@ class BaseSchedulerNode:
 
                 # Return estimated runtime in nanoseconds
                 return max(compute_time, transfer_time)
-            return 0
 
         elif isinstance(self, FusedSchedulerNode) or isinstance(
             self.node, ComputedBuffer
         ):
             # Return estimated runtime in nanoseconds (bytes / gbps)
             return self.get_read_write_buffers_sizes() / gpu_memory_bandwidth
+        return 0
 
     def get_template_node(self) -> Optional[ir.TemplateBuffer]:
         return None

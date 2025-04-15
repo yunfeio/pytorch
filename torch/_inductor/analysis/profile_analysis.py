@@ -198,7 +198,8 @@ def _augment_trace_helper(data: dict[str, Any]) -> dict[str, Any]:
             if "args" not in event:
                 raise ParseException(f"kernel has no args: {event}")
             if "External id" not in event["args"]:
-                info(f"kernel has no External id: {event}")
+                event_str = f"kernel has no External id: {event}"
+                info(event_str)
                 continue
 
             external_op = extern_mapping[event["args"]["External id"]][0]
@@ -247,8 +248,6 @@ Table = tuple[list[str], dict[str, list[str]]]
 
 
 class JsonProfile:
-    """operations on json perfetto traces"""
-
     _devices: DeviceMap
 
     def __init__(
@@ -257,6 +256,9 @@ class JsonProfile:
         nruns: int,
         benchmark_name: Optional[str] = None,
     ):
+        """
+        Convienence class for running common operations on chrome/perfetto json traces.
+        """
         self.path = path
         with open(path) as f:
             self.data = json.load(f)
@@ -502,6 +504,10 @@ def parse_profile_event_list(
     nruns: int,
     device_name: str,
 ) -> None:
+    """
+    Parse and generate a report for an event_list.
+    """
+
     def get_self_device_time(
         ev: torch.autograd.profiler_util.EventList,
     ) -> float:

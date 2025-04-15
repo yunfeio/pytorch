@@ -29,10 +29,7 @@ def shape_wrapper(f):
     @wraps(f)
     def nf(*args, out_val=None, **kwargs):
         args, kwargs, out_shape = tree_map(get_shape, (args, kwargs, out_val))
-        try:
-            return f(*args, out_shape=out_shape, **kwargs)
-        except:
-            breakpoint()
+        return f(*args, out_shape=out_shape, **kwargs)
     return nf
 
 def register_flop_formula(targets, get_raw=False) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
