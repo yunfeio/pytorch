@@ -8,13 +8,8 @@ from logging import info
 from typing import Any, Optional, Union
 
 import torch
-from torch._inductor.utils import (
-    flatten,
-    get_device_tflops,
-    get_gpu_dram_gbps,
-    tabulate_2d,
-    zip_dicts,
-)
+from torch._inductor.analysis.device_info import DeviceInfo, lookup_device_info
+from torch._inductor.utils import flatten, tabulate_2d, zip_dicts
 from torch.autograd import DeviceType
 from torch.utils._ordered_set import OrderedSet
 from torch.utils.flop_counter import flop_registry
@@ -213,50 +208,6 @@ _dtype_map = {
 
 
 @dataclass(frozen=True)
-class DeviceInfo:
-    tflops: dict[torch.dtype, float]
-    dram_bw_gbs: float
-
-    @staticmethod
-    def get_device_info() -> tuple[dict[torch.dtype, int], float]:
-        """
-        This is the info that populates DeviceInfo, but it needs to be run on each device separately.
-        For new hardware, run this function and then add the information to `_device_mapping`
-        """
-        # TODO support int dtypes
-        floats = [torch.float, torch.bfloat16, torch.float16]
-        return {
-            dtype: get_device_tflops(dtype) for dtype in floats
-        }, get_gpu_dram_gbps()
-
-
-_device_mapping: dict[str, DeviceInfo] = {
-    "NVIDIA H100": DeviceInfo(
-        tflops={
-            torch.float32: 0.033454080000000004,
-            torch.bfloat16: 0.5352652800000001,
-            torch.float16: 0.5352652800000001,
-        },
-        dram_bw_gbs=2446.848,
-    )
-}
-
-
-def lookup_device_info(name: str) -> "DeviceInfo":
-    """
-    problem: when diffing profiles between amd and nvidia, we don't have access to the device information
-    of the other one. Also, since the analysis is static, we should be able to do it on another device unrelated
-    to the recorded device. Therefore, _device_mapping statically contains the information for lots of devices.
-    If one is missing, please run DeviceInfo.get_device_info() and add it to _device_mapping.
-    """
-    if name not in _device_mapping:
-        raise RuntimeError(
-            f"Unsupported device in profile: {name}, consider contributing to _device_mapping."
-        )
-    return _device_mapping[name]
-
-
-@dataclass(frozen=True)
 class KernelStats:
     flops: int
     bw: float
@@ -386,9 +337,7 @@ class JsonProfile:
                     achieved_flops = 0
                 else:
                     dtype = self.convert_dtype(event)
-                    if event["name"].startswith("sm80_xmma_gemm_f32f32"):
-                        breakpoint()
-                    achieved_flops = 100 * op_flops / (1e12 * dev.info.tflops[dtype])
+                    achieved_flops = 100 * op_flops / (1e12 * dev.info.tops[dtype])
             else:
                 op_flops = 0
                 achieved_flops = 0
@@ -397,7 +346,7 @@ class JsonProfile:
                 assert dur != 0
                 # 1000ms/s * gb / ms = gb/s
                 op_gbps = 1e3 * event["args"]["kernel_num_gb"] / dur
-                achieved_bandwidth = 100 * op_gbps / dev.info.dram_bw_gbs
+                achieved_bandwidth = 100 * op_gbps / dev.info.dram_bw_tbs
             else:
                 op_gbps = 0
                 achieved_bandwidth = 0

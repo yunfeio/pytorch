@@ -56,6 +56,7 @@ from unittest import mock
 import sympy
 
 import torch
+from torch._inductor.analysis.device_info import datasheet_tops
 from torch._inductor.runtime.hints import DeviceProperties
 from torch.fx.experimental.symbolic_shapes import ShapeEnv
 from torch.utils._ordered_set import OrderedSet
@@ -1895,6 +1896,16 @@ def get_backend_num_stages() -> int:
 
 @functools.lru_cache(None)
 def get_device_tflops(dtype: torch.dtype) -> int:
+    """
+    We don't want to throw errors in this function. First check to see if the device is in device_info.py,
+    then fall back to the inaccurate triton estimation.
+    """
+    try:
+        return datasheet_tops(dtype)
+    except Exception:
+        # Not all devices are supported, fall back to triton theroetical estimate.
+        pass
+
     from triton.testing import get_max_simd_tflops, get_max_tensorcore_tflops
 
     assert dtype in (torch.float16, torch.bfloat16, torch.float32)
@@ -2845,6 +2856,7 @@ def get_ld_library_path() -> str:
             path = os.pathsep.join([lib_path, path]) if path else lib_path
 
     return path
+
 
 def tabulate_2d(elements: Sequence[Sequence[T]], headers: Sequence[T]) -> str:
     widths = [len(str(e)) for e in headers]
