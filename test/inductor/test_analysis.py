@@ -13,6 +13,7 @@ from torch._inductor.analysis.profile_analysis import (
     _augment_trace_helper,
     JsonProfile,
     main,
+    _create_extern_mapping
 )
 from torch._inductor.utils import flatten, tabulate_2d, zip_dicts
 from torch.testing._internal.common_device_type import (
@@ -269,7 +270,6 @@ class TestAnalysis(TestCase):
                 om()
         p.export_chrome_trace(trace2)
 
-        # patch('sys.stdout', new_callable=StringIO) as mock_stdout,
         with patch(
             "sys.argv",
             [
@@ -286,7 +286,6 @@ class TestAnalysis(TestCase):
             ],
         ):
             main()
-            # self.assertEqual(mock_stdout.getvalue(), "")
 
     def test_augment_trace_helper(self):
         js = json.loads(example_profile)
@@ -366,23 +365,30 @@ class TestAnalysis(TestCase):
             out_profile = json.load(f)
 
         flop_counts = mode.flop_counts
+        extern_mapping = _create_extern_mapping(out_profile)
+
+
         for event in out_profile["traceEvents"]:
-            if event["name"].startswith("aten::mm"):
+            if "cat" not in event or event["cat"] != "kernel":
+                continue
+
+            external_op = extern_mapping[event["args"]["External id"]][0]
+            if external_op["name"].startswith("aten::mm"):
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.mm],
                 )
-            if event["name"].startswith("aten::cudnn_convolution"):
+            if external_op["name"].startswith("aten::cudnn_convolution") or external_op["name"].startswith("aten::convolution") or external_op["name"].startswith("aten::_convolution"):
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.convolution],
                 )
-            if event["name"].startswith("aten::baddbmm"):
+            if external_op["name"].startswith("aten::baddbmm"):
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.baddbmm],
                 )
-            if event["name"].startswith("aten::bmm"):
+            if external_op["name"].startswith("aten::bmm"):
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.bmm],

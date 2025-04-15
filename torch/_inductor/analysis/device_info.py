@@ -1,19 +1,23 @@
-import torch
 from dataclasses import dataclass
+
+import torch
+
 
 @dataclass(frozen=True)
 class DeviceInfo:
     """
-    Theoretical Numbers from data sheet. If two numbers are given, Tensor/Matrix Core vs not, 
+    Theoretical Numbers from data sheet. If two numbers are given, Tensor/Matrix Core vs not,
     then the higher number is reported. Sparsity is not considered.
 
 
     Bandwidth numbers are tricky, because there are platform differences that may not show up in the profiler trace.
-    For example, 
+    For example,
     """
+
     tops: dict[torch.dtype, float]
     dram_bw_tbs: float
     dram_gb: float
+
 
 # TODO investigate profiler support for tf32 and allow device to report correct number when it's turned on.
 _device_mapping: dict[str, DeviceInfo] = {
@@ -101,6 +105,7 @@ def lookup_device_info(name: str) -> "DeviceInfo":
             f"Unsupported device in profile: {name}, please consider contributing to _device_mapping."
         )
     return _device_mapping[name]
+
 
 def datasheet_tops(dtype: torch.dtype) -> float:
     """

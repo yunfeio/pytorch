@@ -5232,20 +5232,19 @@ class ExternKernel(InputsKernel):
 
         unbacked_bindings: Optional[dict[sympy.Symbol, pytree.KeyPath]] = None
 
-        if not isinstance(V.fake_mode, NullHandler):
-            if shape_env := V.fake_mode.shape_env:
-                node_meta_val = V.current_node.meta.get("val")
-                ctx = nullcontext()
-                if V.current_node.target == torch._higher_order_ops.effects.with_effects:
-                    # remove the first effect token in meta["val"] and meta["unbacked_bindings"]
-                    node_meta_val = node_meta_val[1]
-                    ctx = _remove_effect_token_unbacked_bindings(V.current_node)  # type: ignore[assignment]
+        if shape_env := V.fake_mode.shape_env:
+            node_meta_val = V.current_node.meta.get("val")
+            ctx = nullcontext()
+            if V.current_node.target == torch._higher_order_ops.effects.with_effects:
+                # remove the first effect token in meta["val"] and meta["unbacked_bindings"]
+                node_meta_val = node_meta_val[1]
+                ctx = _remove_effect_token_unbacked_bindings(V.current_node)  # type: ignore[assignment]
 
-                with ctx:
-                    rebind_unbacked(shape_env, V.current_node, example_output)
-                unbacked_bindings = compute_unbacked_bindings(
-                    shape_env, example_output, node_meta_val
-                )
+            with ctx:
+                rebind_unbacked(shape_env, V.current_node, example_output)
+            unbacked_bindings = compute_unbacked_bindings(
+                shape_env, example_output, node_meta_val
+            )
 
         example_out_li = (
             [example_output]
