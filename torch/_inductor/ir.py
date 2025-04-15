@@ -98,7 +98,7 @@ from .utils import (
     sympy_subs,
     tensor_is_aligned,
 )
-from .virtualized import NullHandler, ops, OpsValue, V
+from .virtualized import ops, OpsValue, V
 
 
 if TYPE_CHECKING:

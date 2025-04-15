@@ -29,7 +29,10 @@ def shape_wrapper(f):
     @wraps(f)
     def nf(*args, out_val=None, **kwargs):
         args, kwargs, out_shape = tree_map(get_shape, (args, kwargs, out_val))
-        return f(*args, out_shape=out_shape, **kwargs)
+        try:
+            return f(*args, out_shape=out_shape, **kwargs)
+        except:
+            breakpoint()
     return nf
 
 def register_flop_formula(targets, get_raw=False) -> Callable[[Callable[_P, _T]], Callable[_P, _T]]:
@@ -147,7 +150,7 @@ def conv_flop_count(
     return flop
 
 @register_flop_formula([aten.convolution, aten._convolution])
-def conv_flop(x_shape, w_shape, _bias, _stride, _padding, _dilation, transposed, *args, out_shape=None, **kwargs) -> int:
+def conv_flop(x_shape, w_shape, bias, stride, padding, dilation, transposed, *args, out_shape=None, **kwargs) -> int:
     """Count flops for convolution."""
     return conv_flop_count(x_shape, w_shape, out_shape, transposed=transposed)
 

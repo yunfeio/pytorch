@@ -167,7 +167,10 @@ def _estimate_gb(event: dict[str, Any]) -> float:
         bw += isize * math.prod(flatten(size))
     return bw / 1e9
 
-def _create_extern_mapping(data: dict[str, Any]) -> defaultdict[int, list[dict[str, Any]]]:
+
+def _create_extern_mapping(
+    data: dict[str, Any],
+) -> defaultdict[int, list[dict[str, Any]]]:
     """
     compute a mapping from exteral ids to non kernels, which contain the information we need to estimate flops etc
     """
@@ -194,6 +197,9 @@ def _augment_trace_helper(data: dict[str, Any]) -> dict[str, Any]:
         if event["cat"] == "kernel":
             if "args" not in event:
                 raise ParseException(f"kernel has no args: {event}")
+            if "External id" not in event["args"]:
+                info(f"kernel has no External id: {event}")
+                continue
 
             external_op = extern_mapping[event["args"]["External id"]][0]
             external_op["args"]["kernel_flop"] = _calculate_flops(external_op)

@@ -45,6 +45,7 @@ from .ir import (
     ExternKernel,
     get_device_type,
     GraphPartitionSignature,
+    ir_node_to_tensor,
     MultiOutput,
     MultiOutputLayout,
 )
@@ -781,16 +782,14 @@ class BaseSchedulerNode:
 
     @cache_on_self
     def estimate_flops(self) -> int | None:
-        op = kernel_name_to_op.get(getattr(self.node, "python_kernel_name", ""), None)
-
-        if not isinstance(self.node, ExternKernel) or op is None:
-            return None
-
-        # extern kernel is needed for kernel.node.inputs/fx_node
-
         # mypy isn't smart enough to infer from ExternKernel that self.node.inputs
         # and self.node.fx_node exists
         kern: ExternKernel = self.node
+
+        op = kernel_name_to_op(getattr(kern, "python_kernel_name", ""))
+
+        if not isinstance(self.node, ExternKernel) or op is None:
+            return None
 
         if any(len(free_unbacked_symbols(n.get_numel())) > 0 for n in kern.inputs):
             # Tensor has unbacked symints, we don't know how to estimate
@@ -799,20 +798,16 @@ class BaseSchedulerNode:
 
         # NOTE if we want to expand this to more generic nodes, we need to associate
         # the ir node with fx_node
-        with (
-            FlopCounterMode(display=False) as flop_counter_mode,
-            V.set_current_node(kern.fx_node),  # type ignore[attr-defined]
-        ):
-            from .ir import ir_node_to_tensor
+        mode = FlopCounterMode(display=False)
+        fake_inputs = [
+            ir_node_to_tensor(input, guard_shape=False)
+            for input in kern.inputs  # type: ignore[attr-defined]
+        ]
 
-            fake_inputs = [
-                ir_node_to_tensor(input, guard_shape=False)
-                for input in kern.inputs  # type: ignore[attr-defined]
-            ]
-            cls = kern.__class__
-            cls.process_kernel(op, *fake_inputs, **kern.kwargs)
+        out = op(*fake_inputs, **kern.kwargs)
+        mode._count_flops(op, out, fake_inputs, kern.kwargs)
 
-            return flop_counter_mode.get_total_flops()
+        return mode.get_total_flops()
 
     @cache_on_self
     def get_estimated_runtime(self) -> float:
@@ -858,9 +853,7 @@ class BaseSchedulerNode:
             assert isinstance(self.node, ir.ExternKernel), f"{type(self.node)=}"
             if self.node is None:
                 return 0
-            op = kernel_name_to_op.get(
-                getattr(self.node, "python_kernel_name", ""), None
-            )
+            op = kernel_name_to_op(getattr(self.node, "python_kernel_name", ""))
 
             if op is not None:
                 # if there is a resolved op, dry-run using fake mode and record flop count
@@ -872,8 +865,8 @@ class BaseSchedulerNode:
                     # runtime for that today
                     return 0
 
-                counted_flops = self.estimate_flops()
-                counted_flops = 0 if counted_flops is None else counted_flops
+                flops_est = self.estimate_flops()
+                counted_flops: int = 0 if flops_est is None else flops_est
                 # TODO(xmfan): find a better heuristic to model FLOPS/latency relationship
                 factor = 1.0
                 counted_bytes = self.get_read_write_buffers_sizes()
@@ -883,14 +876,13 @@ class BaseSchedulerNode:
 
                 # Return estimated runtime in nanoseconds
                 return max(compute_time, transfer_time)
+            return 0
 
         elif isinstance(self, FusedSchedulerNode) or isinstance(
             self.node, ComputedBuffer
         ):
             # Return estimated runtime in nanoseconds (bytes / gbps)
             return self.get_read_write_buffers_sizes() / gpu_memory_bandwidth
-
-        return 0
 
     def get_template_node(self) -> Optional[ir.TemplateBuffer]:
         return None
@@ -1004,15 +996,10 @@ def _prune_redundant_deps(
         node.set_read_writes(node.read_writes.remove_reads(deps_to_prune))
 
 
-# TODO(xmfan): reuse: an existing mapping for this if it exists, or formalize this into ir.py:ExternKernel
-kernel_name_to_op = {
-    "extern_kernels.convolution": torch.ops.aten.convolution,
-    "extern_kernels.mm": torch.ops.aten.mm,
-    "extern_kernels.bmm": torch.ops.aten.bmm,
-    "extern_kernels.addmm": torch.ops.aten.addmm,
-    "extern_kernels._scaled_mm": torch.ops.aten._scaled_mm,
-    "extern_kernels._scaled_grouped_mm": torch.ops.aten._scaled_grouped_mm,
-}
+def kernel_name_to_op(name: str) -> Optional[Any]:
+    if not name.startswith("extern_kernels."):
+        return None
+    return getattr(torch.ops.aten, name[len("extern_kernels.") :], None)
 
 
 class ExternKernelSchedulerNode(BaseSchedulerNode):

@@ -11,9 +11,9 @@ import torch.nn.functional as F
 import torch.utils.flop_counter
 from torch._inductor.analysis.profile_analysis import (
     _augment_trace_helper,
+    _create_extern_mapping,
     JsonProfile,
     main,
-    _create_extern_mapping
 )
 from torch._inductor.utils import flatten, tabulate_2d, zip_dicts
 from torch.testing._internal.common_device_type import (
@@ -367,7 +367,6 @@ class TestAnalysis(TestCase):
         flop_counts = mode.flop_counts
         extern_mapping = _create_extern_mapping(out_profile)
 
-
         for event in out_profile["traceEvents"]:
             if "cat" not in event or event["cat"] != "kernel":
                 continue
@@ -378,7 +377,11 @@ class TestAnalysis(TestCase):
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.mm],
                 )
-            if external_op["name"].startswith("aten::cudnn_convolution") or external_op["name"].startswith("aten::convolution") or external_op["name"].startswith("aten::_convolution"):
+            if (
+                external_op["name"].startswith("aten::cudnn_convolution")
+                or external_op["name"].startswith("aten::convolution")
+                or external_op["name"].startswith("aten::_convolution")
+            ):
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.convolution],
