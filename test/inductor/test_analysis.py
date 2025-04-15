@@ -316,10 +316,8 @@ class TestAnalysis(TestCase):
         self.assertIn("|", rep)
         self.assertIn("-----", rep)
 
-        # TODO we need a robust way of checking this report.
-        # In the mean time, make sure that no column is empty.
-        # TODO check to make sure all % values are less than 100%
         tables = profile._create_tables(profile._devices)
+        # check to make sure none of the cols are all zero, no empty columns
         for tab in tables.values():
             header, rows = tab
             ncols = len(header) - 1
@@ -337,6 +335,26 @@ class TestAnalysis(TestCase):
                     self.assertTrue(
                         seen[i],
                         f"column values from column {i + 1} with header '{header[i + 1]}' are all zero",
+                    )
+
+        # check to make sure all % values are less than 100%
+        percents = []
+        for tab in tables.values():
+            header, rows = tab
+            for i, h in enumerate(header):
+                if "%" in h:
+                    percents.append(i)
+            self.assertTrue(len(percents) > 0, "There are no headers with % in them")
+            for row in rows.values():
+                for p in percents:
+                    idx = p - 1
+                    self.assertTrue(
+                        float(row[idx]) <= 100.0,
+                        f"column values from column {idx} with header '{header[idx]}' is greater than 100%: {row[idx]}",
+                    )
+                    self.assertTrue(
+                        float(row[idx]) >= 0.0,
+                        f"column values from column {idx} with header '{header[idx]}' is less than 0%: {row[idx]}",
                     )
 
     @dtypes(torch.float, torch.double)
