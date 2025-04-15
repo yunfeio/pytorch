@@ -223,7 +223,7 @@ class DeviceInfo:
         This is the info that populates DeviceInfo, but it needs to be run on each device separately.
         For new hardware, run this function and then add the information to `_device_mapping`
         """
-        # TODO int would probably be good to support
+        # TODO support int dtypes
         floats = [torch.float, torch.bfloat16, torch.float16]
         return {
             dtype: get_device_tflops(dtype) for dtype in floats
@@ -386,6 +386,8 @@ class JsonProfile:
                     achieved_flops = 0
                 else:
                     dtype = self.convert_dtype(event)
+                    if event["name"].startswith("sm80_xmma_gemm_f32f32"):
+                        breakpoint()
                     achieved_flops = 100 * op_flops / (1e12 * dev.info.tflops[dtype])
             else:
                 op_flops = 0

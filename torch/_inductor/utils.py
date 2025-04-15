@@ -1901,9 +1901,9 @@ def get_device_tflops(dtype: torch.dtype) -> int:
 
     if inspect.signature(get_max_simd_tflops).parameters.get("clock_rate"):
         # Triton API change in https://github.com/openai/triton/pull/2293
-        from torch._utils_internal import max_clock_rate
+        from torch._utils_internal import max_clock_rate_mhz
 
-        sm_clock = max_clock_rate()
+        sm_clock = max_clock_rate_mhz()
         if dtype in (torch.float16, torch.bfloat16):
             return get_max_tensorcore_tflops(dtype, sm_clock)
 
