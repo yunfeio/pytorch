@@ -94,18 +94,8 @@ if TYPE_CHECKING:
     from torch._inductor.codegen.simd import IterationRangesRoot
 
 
-# TODO here
-# mapping from extern kernels to aten ops
-# aten ops + flops calc flops formula
-# do this as followup, not in this version
-# latency in result
 class KernelNamespace:
-    def estimated_flops(self, name):
-        pass
-
-    # def __getattr__(self, name):
-    #     breakpoint()
-    #     pass
+    pass
 
 
 # these objects are imported from the generated wrapper code
