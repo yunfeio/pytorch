@@ -225,7 +225,7 @@ class Interpreter:
         Run a specific node ``n`` and return the result.
         Calls into placeholder, get_attr, call_function,
         call_method, call_module, or output depending
-        on ``n.op``
+        on ``node.op``
 
         Args:
             n (Node): The Node to execute
