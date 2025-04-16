@@ -787,7 +787,7 @@ class BaseSchedulerNode:
 
         op = kernel_name_to_op(getattr(self.node, "python_kernel_name", ""))
 
-        if not isinstance(self.node, ExternKernel) or op is None:
+        if op is None or not isinstance(self.node, ExternKernel):
             return None
 
         kern: ExternKernel = self.node
@@ -854,7 +854,8 @@ class BaseSchedulerNode:
             assert isinstance(self.node, ir.ExternKernel), f"{type(self.node)=}"
             if self.node is None:
                 return 0
-            op = kernel_name_to_op(getattr(self.node, "python_kernel_name", ""))
+            ker_name = getattr(self.node, "python_kernel_name", "")
+            op = kernel_name_to_op(ker_name)
 
             if op is not None:
                 # if there is a resolved op, dry-run using fake mode and record flop count
@@ -997,7 +998,9 @@ def _prune_redundant_deps(
         node.set_read_writes(node.read_writes.remove_reads(deps_to_prune))
 
 
-def kernel_name_to_op(name: str) -> Optional[Any]:
+def kernel_name_to_op(name: Optional[str]) -> Optional[Any]:
+    if name is None:
+        return None
     if not name.startswith("extern_kernels."):
         return None
     return getattr(torch.ops.aten, name[len("extern_kernels.") :], None)
