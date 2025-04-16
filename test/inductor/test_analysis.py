@@ -16,11 +16,13 @@ from torch._inductor.analysis.profile_analysis import (
     main,
 )
 from torch._inductor.utils import flatten, tabulate_2d, zip_dicts
+from torch.testing._internal.common_cuda import SM70OrLater
 from torch.testing._internal.common_device_type import (
     dtypes,
     instantiate_device_type_tests,
 )
 from torch.testing._internal.common_utils import run_tests, TestCase
+from torch.testing._internal.inductor_utils import skipCUDAIf
 
 
 example_profile = """
@@ -245,6 +247,7 @@ class TestUtils(TestCase):
 
 
 class TestAnalysis(TestCase):
+    @skipCUDAIf(not SM70OrLater, "Requires sm70")
     def test_noop(self):
         with (
             patch("sys.stdout", new_callable=StringIO) as mock_stdout,
@@ -253,6 +256,7 @@ class TestAnalysis(TestCase):
             main()
             self.assertEqual(mock_stdout.getvalue(), "")
 
+    @skipCUDAIf(not SM70OrLater, "Requires sm70")
     @dtypes(torch.float, torch.double)
     def test_diff(self, device, dtype):
         """
@@ -287,12 +291,14 @@ class TestAnalysis(TestCase):
         ):
             main()
 
+    @skipCUDAIf(not SM70OrLater, "Requires sm70")
     def test_augment_trace_helper(self):
         js = json.loads(example_profile)
         out_profile = _augment_trace_helper(js)
         expected_flops = [4096000, 4096000, 223552896, 223552896, 0, 0, 0]
         verify_flops(self, expected_flops, out_profile)
 
+    @skipCUDAIf(not SM70OrLater, "Requires sm70")
     @dtypes(torch.float, torch.double)
     def test_augment_trace_helper_args(self, device, dtype):
         om = omni_model(device, dtype)
@@ -357,6 +363,7 @@ class TestAnalysis(TestCase):
                         f"column values from column {idx} with header '{header[idx]}' is less than 0%: {row[idx]}",
                     )
 
+    @skipCUDAIf(not SM70OrLater, "Requires sm70")
     @dtypes(torch.float, torch.double)
     def test_augment_trace_against_flop_counter(self, device, dtype):
         if device == "cpu":
