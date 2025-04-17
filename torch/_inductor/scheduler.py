@@ -16,6 +16,8 @@ import typing
 from collections import Counter, defaultdict
 from typing import Any, Callable, Generic, Optional, TYPE_CHECKING, TypeVar, Union
 
+from torch._subclasses.fake_tensor import FakeTensorMode
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -797,14 +799,15 @@ class BaseSchedulerNode:
             # runtime for that today
             return None
 
-        # NOTE if we want to expand this to more generic nodes, we need to associate
-        # the ir node with fx_node
-        fake_inputs = [
-            ir_node_to_tensor(input, guard_shape=False)
-            for input in kern.inputs  # type: ignore[attr-defined]
-        ]
-
-        with FlopCounterMode(display=False) as mode:
+        with (
+            FlopCounterMode(display=False) as mode,
+            FakeTensorMode() as fake_mode,
+            V.set_fake_mode(fake_mode),
+        ):
+            fake_inputs = [
+                ir_node_to_tensor(input, guard_shape=False)
+                for input in kern.inputs  # type: ignore[attr-defined]
+            ]
             cls = self.node.__class__
             cls._get_output(op, *fake_inputs, **kern.kwargs)
             return mode.get_total_flops()
