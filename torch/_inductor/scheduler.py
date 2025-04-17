@@ -799,16 +799,15 @@ class BaseSchedulerNode:
 
         # NOTE if we want to expand this to more generic nodes, we need to associate
         # the ir node with fx_node
-        mode = FlopCounterMode(display=False)
         fake_inputs = [
             ir_node_to_tensor(input, guard_shape=False)
             for input in kern.inputs  # type: ignore[attr-defined]
         ]
 
-        out = op(*fake_inputs, **kern.kwargs)
-        mode._count_flops(op, out, fake_inputs, kern.kwargs)
-
-        return mode.get_total_flops()
+        with FlopCounterMode(display=False) as mode:
+            cls = self.node.__class__
+            cls._get_output(op, *fake_inputs, **kern.kwargs)
+            return mode.get_total_flops()
 
     @cache_on_self
     def get_estimated_runtime(self) -> float:

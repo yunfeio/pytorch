@@ -56,7 +56,7 @@ _device_mapping: dict[str, DeviceInfo] = {
     "NVIDIA L4": DeviceInfo(
         tops={
             # This is a guess, not in datasheet
-            torch.float64: 15.1, 
+            torch.float64: 15.1,
             torch.float32: 30.3,
             torch.bfloat16: 242.0,
             torch.float16: 242.0,
