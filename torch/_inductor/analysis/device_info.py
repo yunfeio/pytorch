@@ -15,7 +15,7 @@ class DeviceInfo:
     """
 
     tops: dict[torch.dtype, float]
-    dram_bw_tbs: float
+    dram_bw_gbs: float
     dram_gb: float
 
 
@@ -36,7 +36,7 @@ _device_mapping: dict[str, DeviceInfo] = {
             torch.float8_e8m0fnu: 3958.0,
             torch.int8: 3958.0,
         },
-        dram_bw_tbs=3350,
+        dram_bw_gbs=3350,
         dram_gb=80,
     ),
     # Source: https://resources.nvidia.com/en-us-tensor-core/nvidia-tensor-core-gpu-datasheet
@@ -49,8 +49,27 @@ _device_mapping: dict[str, DeviceInfo] = {
             # Not in datasheet: float8
             torch.int8: 624.0,
         },
-        dram_bw_tbs=2039.0,
+        dram_bw_gbs=2039.0,
         dram_gb=80.0,
+    ),
+    # Source: https://resources.nvidia.com/en-us-gpu-resources/l4-tensor-datasheet
+    "NVIDIA L4": DeviceInfo(
+        tops={
+            # This is a guess, not in datasheet
+            torch.float64: 15.1, 
+            torch.float32: 30.3,
+            torch.bfloat16: 242.0,
+            torch.float16: 242.0,
+            torch.float8_e8m0fnu: 485.0,
+            torch.float8_e8m0fnu: 485.0,
+            torch.float8_e4m3fnuz: 485.0,
+            torch.float8_e5m2: 485.0,
+            torch.float8_e5m2fnuz: 485.0,
+            torch.float8_e8m0fnu: 485.0,
+            torch.int8: 485.0,
+        },
+        dram_bw_gbs=3350,
+        dram_gb=24,
     ),
     # Source: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/data-sheets/amd-instinct-mi300a-data-sheet.pdf
     "AMD MI300A": DeviceInfo(
@@ -68,7 +87,7 @@ _device_mapping: dict[str, DeviceInfo] = {
             torch.float8_e8m0fnu: 1961.2,
             torch.int8: 1961.2,
         },
-        dram_bw_tbs=5300.0,
+        dram_bw_gbs=5300.0,
         dram_gb=128.0,
     ),
     # Source: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/data-sheets/amd-instinct-mi300x-data-sheet.pdf
@@ -86,7 +105,7 @@ _device_mapping: dict[str, DeviceInfo] = {
             torch.float8_e8m0fnu: 2614.9,
             torch.int8: 2614.9,
         },
-        dram_bw_tbs=5300.0,
+        dram_bw_gbs=5300.0,
         dram_gb=192.0,
     ),
 }

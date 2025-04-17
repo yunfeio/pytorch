@@ -356,7 +356,7 @@ class JsonProfile:
                 assert dur != 0
                 # 1000ms/s * gb / ms = gb/s
                 op_gbps = 1e3 * event["args"]["kernel_num_gb"] / dur
-                achieved_bandwidth = 100 * op_gbps / dev.info.dram_bw_tbs
+                achieved_bandwidth = 100 * op_gbps / dev.info.dram_bw_gbs
             else:
                 op_gbps = 0
                 achieved_bandwidth = 0
