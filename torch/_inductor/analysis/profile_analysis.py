@@ -10,9 +10,9 @@ import torch
 from torch._inductor.analysis.device_info import DeviceInfo, lookup_device_info
 from torch._inductor.utils import tabulate_2d, zip_dicts
 from torch.autograd import DeviceType
+from torch.utils import _pytree as pytree
 from torch.utils._ordered_set import OrderedSet
 from torch.utils.flop_counter import flop_registry
-from torch.utils import _pytree as pytree
 
 
 PROFILE_DIR = tempfile.gettempdir()

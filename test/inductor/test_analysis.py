@@ -241,6 +241,7 @@ class TestUtils(TestCase):
         res = zip_dicts(d1, d2)
         self.assertEqual(set(res), {("a", 1, 3), ("b", 2, None), ("c", None, 4)})
 
+
 class TestAnalysis(TestCase):
     @skipIf(not SM70OrLater, "Requires sm70")
     def test_noop(self):
