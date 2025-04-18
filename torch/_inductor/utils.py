@@ -2903,14 +2903,3 @@ def zip_dicts(
         value2 = dict2.get(key, d2_default)
 
         yield key, value1, value2
-
-
-def flatten(lst: list[Union[T, list[T]]]) -> list[T]:
-    """Flatten a nested list"""
-    flat_list: list[T] = []
-    for item in lst:
-        if isinstance(item, list):
-            flat_list.extend(flatten(item))  # type: ignore[arg-type]
-        else:
-            flat_list.append(item)
-    return flat_list

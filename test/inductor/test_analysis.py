@@ -15,7 +15,7 @@ from torch._inductor.analysis.profile_analysis import (
     JsonProfile,
     main,
 )
-from torch._inductor.utils import flatten, tabulate_2d, zip_dicts
+from torch._inductor.utils import tabulate_2d, zip_dicts
 from torch.testing._internal.common_cuda import SM70OrLater
 from torch.testing._internal.common_device_type import (
     dtypes,
@@ -240,11 +240,6 @@ class TestUtils(TestCase):
         self.assertEqual(set(res), {("a", 1, 3), ("b", 2, "bar"), ("c", "foo", 4)})
         res = zip_dicts(d1, d2)
         self.assertEqual(set(res), {("a", 1, 3), ("b", 2, None), ("c", None, 4)})
-
-    def test_flatten(self):
-        t1 = [1, 2, [3, [4, 5, [6], 7], 8], 9]
-        self.assertEqual(flatten(t1), [1, 2, 3, 4, 5, 6, 7, 8, 9])
-
 
 class TestAnalysis(TestCase):
     @skipIf(not SM70OrLater, "Requires sm70")

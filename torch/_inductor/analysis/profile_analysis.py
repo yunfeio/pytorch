@@ -8,10 +8,11 @@ from typing import Any, Optional, Union
 
 import torch
 from torch._inductor.analysis.device_info import DeviceInfo, lookup_device_info
-from torch._inductor.utils import flatten, tabulate_2d, zip_dicts
+from torch._inductor.utils import tabulate_2d, zip_dicts
 from torch.autograd import DeviceType
 from torch.utils._ordered_set import OrderedSet
 from torch.utils.flop_counter import flop_registry
+from torch.utils import _pytree as pytree
 
 
 PROFILE_DIR = tempfile.gettempdir()
@@ -160,7 +161,7 @@ def _estimate_gb(event: dict[str, Any]) -> float:
             isize = 0
         else:
             isize = getattr(torch, typ).itemsize
-        bw += isize * math.prod(flatten(size))
+        bw += isize * math.prod(pytree.tree_flatten(size)[0])
     return bw / 1e9
 
 
