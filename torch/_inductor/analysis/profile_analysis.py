@@ -155,11 +155,11 @@ def _estimate_gb(event: dict[str, Any]) -> float:
         return 0
     sizes_and_types = zip(event["args"]["Input Dims"], event["args"]["Input type"])
     bw = 0
-    for size, tipe in sizes_and_types:
-        if not hasattr(torch, tipe):
+    for size, typ in sizes_and_types:
+        if not hasattr(torch, typ):
             isize = 0
         else:
-            isize = getattr(torch, tipe).itemsize
+            isize = getattr(torch, typ).itemsize
         bw += isize * math.prod(flatten(size))
     return bw / 1e9
 

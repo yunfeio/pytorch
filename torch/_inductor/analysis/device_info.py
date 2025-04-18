@@ -19,6 +19,7 @@ class DeviceInfo:
     dram_gb: float
 
 
+# Indexing is based on `torch.cuda.get_device_name()`
 # TODO investigate profiler support for tf32 and allow device to report correct number when it's turned on.
 _device_mapping: dict[str, DeviceInfo] = {
     # Source: https://resources.nvidia.com/en-us-tensor-core/nvidia-tensor-core-gpu-datasheet
