@@ -15,8 +15,6 @@ from torch.utils._ordered_set import OrderedSet
 from torch.utils.flop_counter import flop_registry
 
 
-PROFILE_DIR = tempfile.gettempdir()
-PROFILE_PATH = f"{PROFILE_DIR}/compiled_module_profile.json"
 ATEN_PREFIX = "aten::"
 
 

@@ -1,11 +1,13 @@
 import datetime
 import tempfile
+from collections import defaultdict
+from dataclasses import dataclass
 from types import ModuleType
-from typing import Any, Optional, Protocol
+from typing import Any, Optional, Protocol, Union
 
 import torch
+from torch.utils._ordered_set import OrderedSet
 
-from .analysis.profile_analysis import parse_profile_event_list, PROFILE_PATH
 from .runtime.benchmarking import benchmarker
 from .runtime.runtime_utils import create_bandwidth_info_str, get_num_bytes
 
@@ -154,6 +156,7 @@ def benchmark_all_kernels(
             "No kernel with benchmark functionality found. Make sure you run inductor with config.benchmark_kernel being True"
         )
 
+
 @dataclass
 class ProfileEvent:
     category: str
@@ -162,6 +165,7 @@ class ProfileEvent:
     # the benchmark is run multiple times and we average the count across all the
     # runs. It should be an integer but define a float just in case.
     count: float
+
 
 def parse_profile_event_list(
     benchmark_name: str,
@@ -291,6 +295,11 @@ def parse_profile_event_list(
         print(tabulate_line)
 
     report()
+
+
+PROFILE_DIR = tempfile.gettempdir()
+PROFILE_PATH = f"{PROFILE_DIR}/compiled_module_profile.json"
+
 
 def perf_profile(
     wall_time_ms: float,
