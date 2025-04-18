@@ -312,9 +312,10 @@ class JsonProfile:
         for dev in self.data["deviceProperties"]:
             name = dev["name"]
             device_info = lookup_device_info(name)
-            raise RuntimeError(
-                f"Unsupported device in profile: {name}, please consider contributing to _device_mapping."
-            )
+            if device_info is None:
+                raise RuntimeError(
+                    f"Unsupported device in profile: {name}, please consider contributing to _device_mapping."
+                )
             self._devices[dev["id"]] = Device(
                 name, dev["id"], device_info, defaultdict(OrderedSet)
             )

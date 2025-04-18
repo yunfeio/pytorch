@@ -22,7 +22,7 @@ from torch.testing._internal.common_device_type import (
     instantiate_device_type_tests,
     skipIf,
 )
-from torch.testing._internal.common_utils import run_tests, TestCase
+from torch.testing._internal.common_utils import run_tests, TestCase, parametrize
 
 
 example_profile = """
@@ -361,12 +361,13 @@ class TestAnalysis(TestCase):
 
     @skipIf(not SM70OrLater, "Requires sm70")
     @dtypes(torch.float, torch.double)
-    def test_augment_trace_against_flop_counter(self, device, dtype):
+    @parametrize("backends", ["ATEN,TRITON", "TRITON"])
+    def test_augment_trace_against_flop_counter(self, device, dtype, backends):
         if device == "cpu":
             return
         om = omni_model(device, dtype)
         comp_omni = torch.compile(
-            om, options={"benchmark_kernel": True, "profile_bandwidth": True}
+            om, options={"benchmark_kernel": True, "profile_bandwidth": True, "max_autotune_gemm_backends": backends, "force_disable_caches": True, "max_autotune": True}
         )
         comp_omni()
 
@@ -375,25 +376,29 @@ class TestAnalysis(TestCase):
 
         with FlopCounterMode() as mode:
             comp_omni()
-        PROFILE_DIR = tempfile.gettempdir()
-        in_path = f"{PROFILE_DIR}/test_profile.json"
-        out_path = f"{PROFILE_DIR}/out_profile.json"
-        p.export_chrome_trace(in_path)
-        with patch("sys.argv", [*prefix, "--augment_trace", in_path, out_path]):
+
+        trace1, trace2 = trace_files()
+        p.export_chrome_trace(trace1)
+        with patch("sys.argv", [*prefix, "--augment_trace", trace1, trace2]):
             main()
 
-        with open(out_path) as f:
+        with open(trace2) as f:
             out_profile = json.load(f)
 
         flop_counts = mode.flop_counts
         extern_mapping = _create_extern_mapping(out_profile)
 
+        seen_mm = False
+        seen_bmm = False
+        seen_baddbmm = False
+        seen_conv = False
         for event in out_profile["traceEvents"]:
             if "cat" not in event or event["cat"] != "kernel":
                 continue
 
             external_op = extern_mapping[event["args"]["External id"]][0]
             if external_op["name"].startswith("aten::mm"):
+                seen_mm = True
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.mm],
@@ -403,20 +408,28 @@ class TestAnalysis(TestCase):
                 or external_op["name"].startswith("aten::convolution")
                 or external_op["name"].startswith("aten::_convolution")
             ):
+                seen_conv = True
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.convolution],
                 )
             if external_op["name"].startswith("aten::baddbmm"):
+                seen_baddbmm = True
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.baddbmm],
                 )
             if external_op["name"].startswith("aten::bmm"):
+                seen_bmm = True
                 self.assertEqual(
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.bmm],
                 )
+        breakpoint()
+        self.assertTrue(seen_mm)
+        self.assertTrue(seen_bmm)
+        self.assertTrue(seen_baddbmm)
+        self.assertTrue(seen_conv)
 
 
 instantiate_device_type_tests(TestAnalysis, globals())
