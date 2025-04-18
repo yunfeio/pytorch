@@ -1900,11 +1900,9 @@ def get_device_tflops(dtype: torch.dtype) -> float:
     We don't want to throw errors in this function. First check to see if the device is in device_info.py,
     then fall back to the inaccurate triton estimation.
     """
-    try:
-        return datasheet_tops(dtype)
-    except Exception:
-        # Not all devices are supported, fall back to triton theroetical estimate.
-        pass
+    ds_tops = datasheet_tops(dtype)
+    if ds_tops is not None:
+        return ds_tops
 
     from triton.testing import get_max_simd_tflops, get_max_tensorcore_tflops
 

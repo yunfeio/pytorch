@@ -310,15 +310,16 @@ class JsonProfile:
         raise RuntimeError(f"Unknown type: {ret_type}. Please add to _dtype_map.")
 
     def _create_devices(self) -> None:
-        self._devices = {
-            dev["id"]: Device(
-                dev["name"],
-                dev["id"],
-                lookup_device_info(dev["name"]),
-                defaultdict(OrderedSet),
+        self._devices = {}
+        for dev in self.data["deviceProperties"]:
+            name = dev["name"]
+            device_info = lookup_device_info(name)
+            raise RuntimeError(
+                f"Unsupported device in profile: {name}, please consider contributing to _device_mapping."
             )
-            for dev in self.data["deviceProperties"]
-        }
+            self._devices[dev["id"]] = Device(
+                name, dev["id"], device_info, defaultdict(OrderedSet)
+            )
 
     def calculate_flops(self, event: dict[str, Any]) -> int:
         return _calculate_flops(event)
