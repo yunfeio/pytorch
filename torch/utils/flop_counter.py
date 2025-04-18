@@ -146,7 +146,7 @@ def conv_flop_count(
     flop = prod(conv_shape) * prod(filter_size) * batch_size * c_out * c_in * 2
     return flop
 
-@register_flop_formula([aten.convolution, aten._convolution])
+@register_flop_formula([aten.convolution, aten._convolution, aten.cudnn_convolution])
 def conv_flop(x_shape, w_shape, bias, stride, padding, dilation, transposed, *args, out_shape=None, **kwargs) -> int:
     """Count flops for convolution."""
     return conv_flop_count(x_shape, w_shape, out_shape, transposed=transposed)
