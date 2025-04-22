@@ -413,4 +413,6 @@ if [[ "$BUILD_ENVIRONMENT" != *s390x* && "$BUILD_ENVIRONMENT" != *-bazel-* ]]; t
   print_sccache_stats
 fi
 
-zip -qr tempFiles.zip /tmp/sccache_nvcc*
+mkdir /tmp/nvcc_stuff
+cp /tmp/sccache_nvcc* /tmp/nvcc_stuff
+tar czf nvcc_stuff.tar.gz /tmp/nvcc_stuff

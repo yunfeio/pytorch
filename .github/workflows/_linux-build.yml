@@ -301,7 +301,7 @@ jobs:
           name: ${{ steps.get-job-id.outputs.job-id }}-tempfiles
           retention-days: 14
           if-no-files-found: error
-          path: tempFiles.zip
+          path: nvcc_stuff.tar.gz
           s3-bucket: ${{ inputs.s3-bucket }}
 
       - name: Store PyTorch Build Artifacts on S3
