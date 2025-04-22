@@ -167,7 +167,6 @@ if [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then
   # hipify sources
   python tools/amd_build/build_amd.py
 fi
-MAX_JOBS=1
 
 if [[ "$BUILD_ENVIRONMENT" == *xpu* ]]; then
   # shellcheck disable=SC1091
@@ -413,3 +412,5 @@ fi
 if [[ "$BUILD_ENVIRONMENT" != *s390x* && "$BUILD_ENVIRONMENT" != *-bazel-* ]]; then
   print_sccache_stats
 fi
+
+zip -qr tempFiles.zip /tmp/sccache_nvcc*

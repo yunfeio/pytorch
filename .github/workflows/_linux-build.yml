@@ -295,6 +295,15 @@ jobs:
           path: sccache_log.zip
           s3-bucket: ${{ inputs.s3-bucket }}
 
+      - name: store2
+        uses: seemethere/upload-artifact-s3@v5
+        with:
+          name: ${{ steps.get-job-id.outputs.job-id }}-tempfiles
+          retention-days: 14
+          if-no-files-found: error
+          path: tempFiles.zip
+          s3-bucket: ${{ inputs.s3-bucket }}
+
       - name: Store PyTorch Build Artifacts on S3
         uses: seemethere/upload-artifact-s3@v5
         if: inputs.build-generates-artifacts && steps.build.outcome != 'skipped' && inputs.build-environment != 'linux-s390x-binary-manywheel'
