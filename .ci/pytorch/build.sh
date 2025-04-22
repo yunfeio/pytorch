@@ -414,5 +414,6 @@ if [[ "$BUILD_ENVIRONMENT" != *s390x* && "$BUILD_ENVIRONMENT" != *-bazel-* ]]; t
 fi
 
 mkdir /tmp/nvcc_stuff
+ls /tmp/
 cp /tmp/sccache_nvcc* /tmp/nvcc_stuff
 tar czf nvcc_stuff.tar.gz /tmp/nvcc_stuff
