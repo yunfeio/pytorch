@@ -289,7 +289,7 @@ jobs:
       - name: store
         uses: seemethere/upload-artifact-s3@v5
         with:
-          name: ${{ inputs.build-environment }}-sccache-log
+          name: ${{ steps.get-job-id.outputs.job-id }}-sccache-log
           retention-days: 14
           if-no-files-found: error
           path: sccache_log.zip
