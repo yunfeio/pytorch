@@ -167,6 +167,7 @@ if [[ "$BUILD_ENVIRONMENT" == *rocm* ]]; then
   # hipify sources
   python tools/amd_build/build_amd.py
 fi
+MAX_JOBS=1
 
 if [[ "$BUILD_ENVIRONMENT" == *xpu* ]]; then
   # shellcheck disable=SC1091
