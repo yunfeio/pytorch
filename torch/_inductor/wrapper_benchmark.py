@@ -6,6 +6,7 @@ from types import ModuleType
 from typing import Any, Optional, Protocol, Union
 
 import torch
+from torch.autograd import DeviceType
 from torch.utils._ordered_set import OrderedSet
 
 from .runtime.benchmarking import benchmarker
