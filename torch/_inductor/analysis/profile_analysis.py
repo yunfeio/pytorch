@@ -1,6 +1,5 @@
 import json
 import math
-import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
 from logging import info
@@ -9,7 +8,6 @@ from typing import Any, Optional, Union
 import torch
 from torch._inductor.analysis.device_info import DeviceInfo, lookup_device_info
 from torch._inductor.utils import tabulate_2d, zip_dicts
-from torch.autograd import DeviceType
 from torch.utils import _pytree as pytree
 from torch.utils._ordered_set import OrderedSet
 from torch.utils.flop_counter import flop_registry
@@ -119,30 +117,50 @@ def mm_adapter(
 ) -> tuple[tuple[Any], dict[Any, Any]]:
     return shapes, {}
 
+def _parse_kernel_name(name: str) -> Optional[str]:
+    if name.startswith(ATEN_PREFIX):
+        return name[len(ATEN_PREFIX):]
+    elif "convolution" in name:
+        return "convolution"
+    elif "addmm" in name:
+        return "addmm"
+    elif "bmm" in name:
+        return "bmm"
+    elif "baddbmm" in name:
+        return "baddbmm"
+    elif "_mm" in name:
+        return "mm"
+    else:
+        return None
+
+    
 
 def _calculate_flops(event: dict[str, Any]) -> int:
+    """
+    This function has to parse the kernel name, which is error prone. There doesn't seem to be another solution that
+    will support all the different backends that can generate kernels, so make sure to update this function when new
+    ops and backends are desired.
+    """
     name = event["name"]
-    if name.startswith("aten::"):
-        op_name = name[len("aten::") :]
-        op_obj = getattr(torch.ops.aten, op_name)
-        if op_obj not in flop_registry:
-            return 0
-
-        flop_function = flop_registry[op_obj]
-
-        input_shapes = event["args"]["Input Dims"]
-        concrete = event["args"]["Concrete Inputs"]
-        if op_name in adapters_map:
-            args, kwargs = adapters_map[op_name](input_shapes, concrete)
-        else:
-            args, kwargs = default_adapter(input_shapes, concrete)
-        return flop_function(*args, **kwargs)
-    elif "kernel_flop" in event["args"]:
+    if "kernel_flop" in event["args"] and event["args"]["kernel_flop"] != 0:
         return event["args"]["kernel_flop"]
-    else:
-        msg = "Can't calculate flops for kernel: " + name
-        info(msg)
+    op_name = _parse_kernel_name(name)
+    if op_name is None:
         return 0
+
+    op_obj = getattr(torch.ops.aten, op_name, None)
+    if op_obj not in flop_registry:
+        return 0
+
+    flop_function = flop_registry[op_obj]
+
+    input_shapes = event["args"]["Input Dims"]
+    concrete = event["args"]["Concrete Inputs"]
+    if op_name in adapters_map:
+        args, kwargs = adapters_map[op_name](input_shapes, concrete)
+    else:
+        args, kwargs = default_adapter(input_shapes, concrete)
+    return flop_function(*args, **kwargs)
 
 
 def _estimate_gb(event: dict[str, Any]) -> float:
@@ -187,21 +205,25 @@ def _augment_trace_helper(data: dict[str, Any]) -> dict[str, Any]:
     extern_mapping = _create_extern_mapping(data)
 
     for event in data["traceEvents"]:
-        if "cat" not in event:
+        if "cat" not in event or event["cat"] != "kernel":
             continue
-        if event["cat"] == "kernel":
-            if "args" not in event:
-                raise ParseException(f"kernel has no args: {event}")
-            if "External id" not in event["args"]:
-                event_str = f"kernel has no External id: {event}"
-                info(event_str)
-                continue
+        if "args" not in event:
+            raise ParseException(f"kernel has no args: {event}")
+        if "External id" not in event["args"]:
+            event_str = f"kernel has no External id: {event}"
+            info(event_str)
+            continue
 
-            external_op = extern_mapping[event["args"]["External id"]][0]
-            external_op["args"]["kernel_flop"] = _calculate_flops(external_op)
-            external_op["args"]["kernel_num_gb"] = _estimate_gb(external_op)
-            event["args"]["kernel_flop"] = external_op["args"]["kernel_flop"]
-            event["args"]["kernel_num_gb"] = external_op["args"]["kernel_num_gb"]
+
+        external_op = extern_mapping[event["args"]["External id"]][0]
+        flops = _calculate_flops(external_op)
+        if flops == 0:
+            flops = _calculate_flops(event)
+        external_op["args"]["kernel_flop"] = flops
+        external_op["args"]["kernel_num_gb"] = _estimate_gb(external_op)
+        event["args"]["kernel_flop"] = external_op["args"]["kernel_flop"]
+        event["args"]["kernel_num_gb"] = external_op["args"]["kernel_num_gb"]
+        print(event["args"]["kernel_flop"], event["args"]["kernel_num_gb"])
     return data
 
 
@@ -492,8 +514,6 @@ class JsonProfile:
     def dump(self, out: str) -> None:
         with open(out, "w") as f:
             json.dump(self.data, f)
-
-
 
 
 class ParseException(RuntimeError):

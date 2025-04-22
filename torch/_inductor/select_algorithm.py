@@ -465,7 +465,7 @@ class TritonTemplateKernel(TritonKernel):
             inductor_meta["kernel_num_gb"] = num_gb
         if config.benchmark_kernel:
             flops = self.estimate_flops()
-            inductor_meta["kernel_flops"] = flops
+            inductor_meta["kernel_flop"] = flops
 
         template_args = f"""
             num_stages={self.num_stages},

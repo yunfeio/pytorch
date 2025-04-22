@@ -5,6 +5,7 @@ import tempfile
 import uuid
 from io import StringIO
 from unittest.mock import patch
+import re
 
 import torch
 import torch.nn.functional as F
@@ -15,14 +16,15 @@ from torch._inductor.analysis.profile_analysis import (
     JsonProfile,
     main,
 )
-from torch._inductor.utils import tabulate_2d, zip_dicts
+from torch._inductor.utils import tabulate_2d, zip_dicts, fresh_inductor_cache
 from torch.testing._internal.common_cuda import SM70OrLater
 from torch.testing._internal.common_device_type import (
     dtypes,
     instantiate_device_type_tests,
     skipIf,
 )
-from torch.testing._internal.common_utils import run_tests, TestCase, parametrize
+from torch.testing._internal.common_utils import parametrize, run_tests, TestCase
+from torch._inductor.utils import run_and_get_code
 
 
 example_profile = """
@@ -206,6 +208,42 @@ def omni_model(device, dtype):
         model, options={"benchmark_kernel": True, "profile_bandwidth": True}
     )
 
+def omni_model_no_bmm(device, dtype):
+    T = cT(device, dtype)
+
+    def model():
+        input_conv = T(1, 3, 56, 56)
+        conv_weight = T(12, 3, 5, 5)
+
+        # Increased matrix sizes
+        mat1 = T(400, 600)
+        mat2 = T(600, 800)
+
+        # Convolution operation
+        conv_output = F.conv2d(input_conv, conv_weight)
+
+        # a pointwise op
+        conv_output = conv_output * 10
+
+        # Matrix multiplication (addmm) operation
+        addmm_output = torch.addmm(
+            torch.zeros(400, 800, device=mat1.device, dtype=mat1.dtype), mat1, mat2
+        )
+
+        mm_output = torch.mm(mat1, mat2)
+
+        return torch.cat(
+            [
+                conv_output.flatten(),
+                addmm_output.flatten(),
+                mm_output.flatten(),
+            ]
+        )
+
+    return torch.compile(
+        model, options={"benchmark_kernel": True, "profile_bandwidth": True}
+    )
+
 
 prefix = ["profile.py"]
 
@@ -214,20 +252,20 @@ class TestUtils(TestCase):
     def test_tabulate2d(self):
         headers = ["Kernel", "Self H100 TIME (ms)", "Count", "Percent"]
         rows = [
-            ["aten::mm", 0.000, 1, 0.0],
-            ["aten::bmm", 0.000, 1, 0.0],
-            ["aten::baddbmm", 0.000, 1, 0.0],
-            ["aten::convolution", 0.000, 1, 0.0],
-            ["aten::cudnn_convolution", 0.000, 1, 0.0],
+            ["aten::mm", 0.500, 7, 0.0],
+            ["aten::bmm", 0.400, 6, 0.0],
+            ["aten::baddbmm", 0.300, 5, 0.0],
+            ["aten::convolution", 0.200, 4, 0.0],
+            ["aten::cudnn_convolution", 0.100, 3, 0.0],
         ]
         table = [
             " Kernel                  | Self H100 TIME (ms) | Count | Percent ",
             "-----------------------------------------------------------------",
-            " aten::mm                |                 0.0 |     1 |     0.0 ",
-            " aten::bmm               |                 0.0 |     1 |     0.0 ",
-            " aten::baddbmm           |                 0.0 |     1 |     0.0 ",
-            " aten::convolution       |                 0.0 |     1 |     0.0 ",
-            " aten::cudnn_convolution |                 0.0 |     1 |     0.0 ",
+            " aten::mm                |                 0.5 |     7 |     0.0 ",
+            " aten::bmm               |                 0.4 |     6 |     0.0 ",
+            " aten::baddbmm           |                 0.3 |     5 |     0.0 ",
+            " aten::convolution       |                 0.2 |     4 |     0.0 ",
+            " aten::cudnn_convolution |                 0.1 |     3 |     0.0 ",
         ]
         res = tabulate_2d(rows, headers)
         for r, t in zip(res.split("\n"), table):
@@ -253,7 +291,7 @@ class TestAnalysis(TestCase):
             self.assertEqual(mock_stdout.getvalue(), "")
 
     @skipIf(not SM70OrLater, "Requires sm70")
-    @dtypes(torch.float, torch.double)
+    @dtypes(torch.float, torch.double, torch.float16)
     def test_diff(self, device, dtype):
         """
         diff, testing out the nruns feature too.
@@ -295,7 +333,7 @@ class TestAnalysis(TestCase):
         verify_flops(self, expected_flops, out_profile)
 
     @skipIf(not SM70OrLater, "Requires sm70")
-    @dtypes(torch.float, torch.double)
+    @dtypes(torch.float, torch.double, torch.float16)
     def test_augment_trace_helper_args(self, device, dtype):
         om = omni_model(device, dtype)
         with torch.profiler.profile(record_shapes=True) as p:
@@ -358,27 +396,82 @@ class TestAnalysis(TestCase):
                         float(row[idx]) >= 0.0,
                         f"column values from column {idx} with header '{header[idx]}' is less than 0%: {row[idx]}",
                     )
-
     @skipIf(not SM70OrLater, "Requires sm70")
-    @dtypes(torch.float, torch.double)
-    @parametrize("backends", ["ATEN,TRITON", "TRITON"])
-    def test_augment_trace_against_flop_counter(self, device, dtype, backends):
+    @dtypes(torch.float, torch.float16)
+    @parametrize("maxat", [(True, "TRITON")])
+    def test_inductor_meta_flop_gb_annotations(self, device, dtype, maxat):
         if device == "cpu":
             return
+        max_autotune, backends = maxat
+        om = omni_model_no_bmm(device, dtype)
+        comp_omni = torch.compile(
+            om,
+            options={
+                "benchmark_kernel": True,
+                "profile_bandwidth": True,
+                "max_autotune_gemm_backends": backends,
+                "force_disable_caches": True,
+                "max_autotune": max_autotune,
+            },
+        )
+        code_string = run_and_get_code(comp_omni)[1][0]
+        triton_mm_string_name = r"triton_.*_fused_mm.* = async_compile\.triton"
+        self.assertRegex(code_string, triton_mm_string_name)
+        lines = code_string.split("\n")
+        lookforward = 50
+        seen = False
+        for line_number, line in enumerate(lines):
+            if re.search(triton_mm_string_name, line):
+                seen = True
+                surrounding_lines = "\n".join(lines[line_number:min(len(lines), line_number + lookforward)])
+                if re.search(r"kernel_flop", surrounding_lines):
+                    kernel_flop_number = int(re.search(r"'kernel_flop': (\d+)", surrounding_lines).group(1))
+
+                    breakpoint()
+                    self.assertNotEqual(kernel_flop_number, 0, "kernel_flop should be nonzero")
+                else:
+                    breakpoint()
+                    self.assertTrue(False, "kernel_flop not found in last 10 lines")
+                break
+        self.assertTrue(seen)
+        kernel_flop_number = int(re.search(r"'kernel_flop': (\d+)", code_string).group(1))
+        breakpoint()
+        self.assertNotEqual(kernel_flop_number, 0)
+
+    @skipIf(not SM70OrLater, "Requires sm70")
+    @dtypes(torch.float, torch.double, torch.float16)
+    @parametrize("maxat", [(False, "ATEN,TRITON"), (True, "ATEN,TRITON"), (True, "ATEN"), (True, "TRITON")])
+    def test_augment_trace_against_flop_counter(self, device, dtype, maxat):
+        if device == "cpu":
+            return
+        max_autotune, backends = maxat
         om = omni_model(device, dtype)
         comp_omni = torch.compile(
-            om, options={"benchmark_kernel": True, "profile_bandwidth": True, "max_autotune_gemm_backends": backends, "force_disable_caches": True, "max_autotune": True}
+            om,
+            options={
+                "benchmark_kernel": True,
+                "profile_bandwidth": True,
+                "max_autotune_gemm_backends": backends,
+                "force_disable_caches": True,
+                "max_autotune": max_autotune,
+            },
         )
         comp_omni()
+        breakpoint()
 
-        with torch.profiler.profile(record_shapes=True) as p:
-            comp_omni()
+        torch._dynamo.reset() # reset the cache
+        with fresh_inductor_cache():
+            with torch.profiler.profile(record_shapes=True) as profile:
+                comp_omni()
 
-        with FlopCounterMode() as mode:
-            comp_omni()
+        torch._dynamo.reset() # reset the cache
+        with fresh_inductor_cache():
+            with FlopCounterMode() as mode:
+                comp_omni()
 
         trace1, trace2 = trace_files()
-        p.export_chrome_trace(trace1)
+        profile.export_chrome_trace(trace1)
+        breakpoint()
         with patch("sys.argv", [*prefix, "--augment_trace", trace1, trace2]):
             main()
 
@@ -426,6 +519,7 @@ class TestAnalysis(TestCase):
                     flop_counts["Global"][torch.ops.aten.bmm],
                 )
         breakpoint()
+        print(seen_mm, seen_bmm, seen_baddbmm, seen_conv)
         self.assertTrue(seen_mm)
         self.assertTrue(seen_bmm)
         self.assertTrue(seen_baddbmm)

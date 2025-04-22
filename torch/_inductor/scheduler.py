@@ -16,8 +16,6 @@ import typing
 from collections import Counter, defaultdict
 from typing import Any, Callable, Generic, Optional, TYPE_CHECKING, TypeVar, Union
 
-from torch._subclasses.fake_tensor import FakeTensorMode
-
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -34,7 +32,7 @@ from torch.fx.experimental.symbolic_shapes import free_symbols, free_unbacked_sy
 from torch.utils._ordered_set import OrderedSet
 from torch.utils._sympy.symbol import free_symbol_is_type, symbol_is_type, SymT
 from torch.utils._triton import has_triton
-from torch.utils.flop_counter import FlopCounterMode
+from torch.utils.flop_counter import flop_registry, FlopCounterMode
 
 from . import comms, config, dependencies, ir, metrics
 from .analyze_preserves_zero_mask import can_codegen_without_upcasts
@@ -44,10 +42,8 @@ from .dependencies import Dep, MemoryDep, StarDep, WeakDep
 from .exc import GPUTooOldForTriton, TritonMissing
 from .ir import (
     ComputedBuffer,
-    ExternKernel,
     get_device_type,
     GraphPartitionSignature,
-    ir_node_to_tensor,
     MultiOutput,
     MultiOutputLayout,
 )
@@ -784,33 +780,16 @@ class BaseSchedulerNode:
 
     @cache_on_self
     def estimate_flops(self) -> int | None:
-        # mypy isn't smart enough to infer from ExternKernel that self.node.inputs
-        # and self.node.fx_node exists
-
-        op = kernel_name_to_op(getattr(self.node, "python_kernel_name", ""))
-
-        if op is None or not isinstance(self.node, ExternKernel):
+        if self.node is None:
+            return None
+        fx_node = self.node.get_origin_node()
+        if fx_node is None:
+            return None
+        op = fx_node.target._overloadpacket
+        if op not in flop_registry:
             return None
 
-        kern: ExternKernel = self.node
-
-        if any(len(free_unbacked_symbols(n.get_numel())) > 0 for n in kern.inputs):
-            # Tensor has unbacked symints, we don't know how to estimate
-            # runtime for that today
-            return None
-
-        with (
-            FlopCounterMode(display=False) as mode,
-            FakeTensorMode() as fake_mode,
-            V.set_fake_mode(fake_mode),
-        ):
-            fake_inputs = [
-                ir_node_to_tensor(input, guard_shape=False)
-                for input in kern.inputs  # type: ignore[attr-defined]
-            ]
-            cls = self.node.__class__
-            cls._get_output(op, *fake_inputs, **kern.kwargs)
-            return mode.get_total_flops()
+        return count_flops_fx(fx_node)
 
     @cache_on_self
     def get_estimated_runtime(self) -> float:
@@ -852,41 +831,25 @@ class BaseSchedulerNode:
         except Exception:
             return 0
 
-        if isinstance(self, ExternKernelSchedulerNode):
-            assert isinstance(self.node, ir.ExternKernel), f"{type(self.node)=}"
-            if self.node is None:
-                return 0
-            ker_name = getattr(self.node, "python_kernel_name", "")
-            op = kernel_name_to_op(ker_name)
+        if isinstance(self, FusedSchedulerNode):
+            flops_est = float(sum(filter(lambda x: x is not None, (node.get_estimated_runtime() for node in self.get_nodes()))))
+        else:
+            flops_est = self.estimate_flops()
 
-            if op is not None:
-                # if there is a resolved op, dry-run using fake mode and record flop count
-                if any(
-                    len(free_unbacked_symbols(n.get_numel())) > 0
-                    for n in self.node.inputs
-                ):
-                    # Tensor has unbacked symints, we don't know how to estimate
-                    # runtime for that today
-                    return 0
-
-                flops_est = self.estimate_flops()
-                counted_flops: int = 0 if flops_est is None else flops_est
-                # TODO(xmfan): find a better heuristic to model FLOPS/latency relationship
-                factor = 1.0
-                counted_bytes = self.get_read_write_buffers_sizes()
-                counted_bytes = 0 if counted_bytes is None else counted_bytes
-                compute_time = (factor * counted_flops / gpu_flops) * 1e9
-                transfer_time = counted_bytes / gpu_memory_bandwidth
-
-                # Return estimated runtime in nanoseconds
-                return max(compute_time, transfer_time)
-
-        elif isinstance(self, FusedSchedulerNode) or isinstance(
-            self.node, ComputedBuffer
-        ):
-            # Return estimated runtime in nanoseconds (bytes / gbps)
+        if flops_est == 0:
+            # no flops estimate, so fall back to memory estimate
             return self.get_read_write_buffers_sizes() / gpu_memory_bandwidth
-        return 0
+
+        counted_flops: int = 0 if flops_est is None else flops_est
+        # TODO(xmfan): find a better heuristic to model FLOPS/latency relationship
+        factor = 1.0
+        counted_bytes = self.get_read_write_buffers_sizes()
+        counted_bytes = 0 if counted_bytes is None else counted_bytes
+        compute_time = (factor * counted_flops / gpu_flops) * 1e9
+        transfer_time = counted_bytes / gpu_memory_bandwidth
+
+        # Return estimated runtime in nanoseconds
+        return max(compute_time, transfer_time)
 
     def get_template_node(self) -> Optional[ir.TemplateBuffer]:
         return None
@@ -999,13 +962,6 @@ def _prune_redundant_deps(
         node.unmet_dependencies = node.unmet_dependencies - deps_to_prune
         node.set_read_writes(node.read_writes.remove_reads(deps_to_prune))
 
-
-def kernel_name_to_op(name: Optional[str]) -> Optional[Any]:
-    if name is None:
-        return None
-    if not name.startswith("extern_kernels."):
-        return None
-    return getattr(torch.ops.aten, name[len("extern_kernels.") :], None)
 
 
 class ExternKernelSchedulerNode(BaseSchedulerNode):
@@ -4733,3 +4689,16 @@ class BaseScheduling:
         and memory copy time in milliseconds on randomly generated inputs.
         """
         raise NotImplementedError
+
+
+def count_flops_fx(node: torch.fx.Node) -> int | None:
+    success, args, kwargs = torch._inductor.fx_utils.get_fake_args_kwargs(node)
+
+    if success:
+        with FlopCounterMode(display=False) as flop_counter_mode:
+            with V.fake_mode:
+                node.target(*args, **kwargs)
+
+        counted_flops = flop_counter_mode.get_total_flops()
+        return counted_flops
+    return None
