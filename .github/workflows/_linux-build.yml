@@ -137,7 +137,8 @@ jobs:
         uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
         if: inputs.build-environment != 'linux-s390x-binary-manywheel'
         with:
-          docker-image-name: ${{ inputs.docker-image-name }}
+          docker-image-name: ci-image
+          custom-tag-prefix: ${{ inputs.docker-image-name }}
 
       - name: Use following to pull public copy of the image
         id: print-ghcr-mirror

@@ -84,7 +84,8 @@ jobs:
         id: calculate-docker-image
         uses: pytorch/test-infra/.github/actions/calculate-docker-image@main
         with:
-          docker-image-name: ${{ inputs.docker-image-name }}
+          docker-image-name: ci-image
+          custom-tag-prefix: ${{ inputs.docker-image-name }}
 
       - name: Pull docker image
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
