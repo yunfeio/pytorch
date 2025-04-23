@@ -280,10 +280,14 @@ if HAS_CUDA:
             with capture_stderr() as captured_output:
                 foo(torch.ones([10], device="cuda"), torch.ones([20]))
 
-            FileCheck().check(
-                "skipping cudagraphs due to cpu device (arg1_1). Found from"
-            ).check("y + 2").run(captured_output[0])
-            self.assertEqual(counters["inductor"]["cudagraph_skips"], 1)
+            if torch._inductor.config.graph_partition:
+                # graph partition splits on cpu ops
+                self.assertEqual(counters["inductor"]["cudagraph_skips"], 0)
+            else:
+                FileCheck().check(
+                    "skipping cudagraphs due to cpu device (arg1_1). Found from"
+                ).check("y + 2").run(captured_output[0])
+                self.assertEqual(counters["inductor"]["cudagraph_skips"], 1)
 
             with capture_stderr() as captured_output:
                 foo(
@@ -293,7 +297,7 @@ if HAS_CUDA:
             FileCheck().check("skipping cudagraphs due to multiple devices").run(
                 captured_output[0]
             )
-            self.assertEqual(counters["inductor"]["cudagraph_skips"], 2)
+            self.assertEqual(counters["inductor"]["cudagraph_skips"], 1 if torch._inductor.config.graph_partition else 2)
 
         @torch._inductor.config.patch("triton.cudagraph_skip_dynamic_graphs", True)
         def test_skip_symbolic(self):
@@ -1457,7 +1461,8 @@ if HAS_CUDA:
                             "getCurrentCUDABlasHandle" in str(e)
                             or "getNewWorkspace" in str(e)
                         )
-
+                    print(e)
+                    # breakpoint()
                 self.assertTrue(thrown)
 
             finally:
