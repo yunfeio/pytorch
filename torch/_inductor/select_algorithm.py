@@ -482,8 +482,8 @@ class TritonTemplateKernel(TritonKernel):
             for node in self.input_nodes:
                 print(node._current_origins)
             print(flops)
-            if flops == 0:
-                breakpoint()
+            # if flops == 0:
+            #     breakpoint()
             inductor_meta["kernel_flop"] = flops
 
         template_args = f"""
