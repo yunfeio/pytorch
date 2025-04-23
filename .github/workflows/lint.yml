@@ -15,6 +15,7 @@ on:
 permissions: read-all
 # The names of steps that actually test the code should be suffixed with `(nonretryable)`.
 # When any other step fails, it's job will be retried once by retryBot.
+
 jobs:
   get-label-type:
     if: github.repository_owner == 'pytorch'
@@ -26,12 +27,13 @@ jobs:
       curr_branch: ${{ github.head_ref || github.ref_name }}
 
   lintrunner-clang:
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@csl/linux_job_v2_custom_docker_tag
     needs: get-label-type
     with:
       timeout: 120
       runner: "${{ needs.get-label-type.outputs.label-type }}linux.2xlarge"
-      docker-image: pytorch-linux-jammy-cuda11.8-cudnn9-py3.9-linter
+      docker-image: ci-image
+      custom-tag-prefix: pytorch-linux-jammy-cuda11.8-cudnn9-py3.9-linter
       # NB: A shallow checkout won't work here because calculate-docker-image requires a full checkout
       # to run git rev-parse HEAD~:.ci/docker when a new image is needed
       fetch-depth: 0
@@ -43,12 +45,13 @@ jobs:
         .github/scripts/lintrunner.sh
 
   lintrunner-noclang:
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@csl/linux_job_v2_custom_docker_tag
     needs: get-label-type
     with:
       timeout: 120
       runner: "${{ needs.get-label-type.outputs.label-type }}linux.2xlarge"
-      docker-image: pytorch-linux-jammy-cuda11.8-cudnn9-py3.9-linter
+      docker-image: ci-image
+      custom-tag-prefix: pytorch-linux-jammy-cuda11.8-cudnn9-py3.9-linter
       # NB: A shallow checkout won't work here because calculate-docker-image requires a full checkout
       # to run git rev-parse HEAD~:.ci/docker when a new image is needed
       fetch-depth: 0
@@ -59,12 +62,13 @@ jobs:
         .github/scripts/lintrunner.sh
 
   quick-checks:
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@csl/linux_job_v2_custom_docker_tag
     needs: get-label-type
     with:
       timeout: 120
       runner: "${{ needs.get-label-type.outputs.label-type }}linux.2xlarge"
-      docker-image: pytorch-linux-focal-linter
+      docker-image: ci-image
+      custom-tag-prefix: pytorch-linux-focal-linter
       fetch-depth: 0
       ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       script: |
@@ -112,12 +116,13 @@ jobs:
           bash .github/scripts/pr-sanity-check.sh
 
   workflow-checks:
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@csl/linux_job_v2_custom_docker_tag
     needs: get-label-type
     with:
       timeout: 120
       runner: "${{ needs.get-label-type.outputs.label-type }}linux.2xlarge"
-      docker-image: pytorch-linux-focal-linter
+      docker-image: ci-image
+      custom-tag-prefix: pytorch-linux-focal-linter
       fetch-depth: -1
       submodules: true
       ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -146,12 +151,13 @@ jobs:
         exit $RC
 
   toc:
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@csl/linux_job_v2_custom_docker_tag
     needs: get-label-type
     with:
       timeout: 120
       runner: "${{ needs.get-label-type.outputs.label-type }}linux.2xlarge"
-      docker-image: pytorch-linux-focal-linter
+      docker-image: ci-image
+      custom-tag-prefix: pytorch-linux-focal-linter
       fetch-depth: 0
       ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       script: |
@@ -182,12 +188,13 @@ jobs:
   test-tools:
     name: Test tools
     if: ${{ github.repository == 'pytorch/pytorch' }}
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@csl/linux_job_v2_custom_docker_tag
     needs: get-label-type
     with:
       timeout: 120
       runner: "${{ needs.get-label-type.outputs.label-type }}linux.2xlarge"
-      docker-image: pytorch-linux-focal-linter
+      docker-image: ci-image
+      custom-tag-prefix: pytorch-linux-focal-linter
       fetch-depth: 0
       ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       script: |
