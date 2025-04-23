@@ -19,11 +19,11 @@ function write_sccache_stub() {
   output=$1
   binary=$(basename "${output}")
 
-  printf "#!/bin/sh\nif [ \$(ps auxc \$(ps auxc -o ppid \$\$ | grep \$\$ | rev | cut -d' ' -f1 | rev) | tr '\\\\n' ' ' | rev | cut -d' ' -f2 | rev) != sccache ]; then\n  exec sccache %s \"\$@\"\nelse\n  exec %s \"\$@\"\nfi" "$(which "${binary}")" "$(which "${binary}")" > "${output}"
+  printf "#!/bin/sh\nif [ \$(ps auxc \$(ps auxc -o ppid \$\$ | grep \$\$ | rev | cut -d' ' -f1 | rev) | tr '\\\\n' ' ' | rev | cut -d' ' -f2 | rev) != sccache ]; then\n  exec sccache %s \"\$@\"\nelse\n  exec %s \"\$@\"\nfi" "$(which "${binary}")" "$(which "${binary}")" >"${output}"
   chmod a+x "${output}"
 }
 
-if which sccache > /dev/null; then
+if which sccache >/dev/null; then
   # Create temp directory for sccache shims
   tmp_dir=$(mktemp -d)
   trap 'rm -rfv ${tmp_dir}' EXIT
@@ -33,7 +33,12 @@ if which sccache > /dev/null; then
   export PATH="${tmp_dir}:$PATH"
 fi
 
-print_cmake_info
+brew install cmake
+cmake_prefix="$(brew --prefix cmake)/bin"
+export PATH="${cmake_prefix}:$PATH"
+
+# brew is used to update cmake and print_cmake_info assumes conda cmake
+# print_cmake_info
 if [[ ${BUILD_ENVIRONMENT} == *"distributed"* ]]; then
   # Needed for inductor benchmarks, as lots of HF networks make `torch.distribtued` calls
   USE_DISTRIBUTED=1 USE_OPENMP=1 WERROR=1 python setup.py bdist_wheel
@@ -42,7 +47,7 @@ else
   # that building with USE_DISTRIBUTED=0 works at all. See https://github.com/pytorch/pytorch/issues/86448
   USE_DISTRIBUTED=0 USE_OPENMP=1 MACOSX_DEPLOYMENT_TARGET=11.0 WERROR=1 BUILD_TEST=OFF USE_PYTORCH_METAL=1 python setup.py bdist_wheel
 fi
-if which sccache > /dev/null; then
+if which sccache >/dev/null; then
   print_sccache_stats
 fi
 

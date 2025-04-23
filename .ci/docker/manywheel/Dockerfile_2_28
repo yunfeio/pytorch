@@ -132,9 +132,12 @@ RUN for cpython_version in "cp312-cp312" "cp313-cp313" "cp313-cp313t"; do \
 
 
 # cmake-3.18.4 from pip; force in case cmake3 already exists
-RUN yum install -y python3-pip && \
-    python3 -mpip install cmake==3.18.4 && \
-    ln -sf /usr/local/bin/cmake /usr/bin/cmake3
+RUN yum install -y python3-pip
+#  Install non-default CMake version
+ARG CMAKE_VERSION=4.0.1
+COPY ./common/install_cmake.sh install_cmake.sh
+RUN bash ./install_cmake.sh
+RUN rm install_cmake.sh
 
 FROM cpu_final as cuda_final
 RUN rm -rf /usr/local/cuda-${BASE_CUDA_VERSION}
