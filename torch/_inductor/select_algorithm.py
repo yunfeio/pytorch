@@ -30,6 +30,7 @@ from torch._dynamo.utils import counters, dynamo_timed, identity, preserve_rng_s
 from torch._inductor.utils import clear_on_fresh_inductor_cache
 from torch.utils._filelock import FileLock
 from torch.utils._ordered_set import OrderedSet
+from torch.utils.flop_counter import countable
 
 from ..utils._sympy.functions import CeilDiv
 from . import config, ir
@@ -65,6 +66,7 @@ from .runtime.triton_compat import HAS_WARP_SPEC
 from .runtime.triton_heuristics import FixedGrid
 from .utils import (
     ceildiv,
+    count_flops_fx,
     FakeIndentedBuffer,
     get_dtype_size,
     is_gpu,
@@ -428,6 +430,16 @@ class TritonTemplateKernel(TritonKernel):
             num_bytes.append(numel * dtype_size * (1 + int(i < ninplace_args)))
         return sum(num_bytes)
 
+    def estimate_flops(self) -> int:
+        flops = 0
+        for node in self.input_nodes:
+            for fx_node in node._current_origins:
+                if countable(fx_node):
+                    f = count_flops_fx(fx_node)
+                    if f is not None:
+                        flops += f
+        return flops
+
     def jit_lines(self):
         if self.use_jit:
             return "@triton.jit"
@@ -465,6 +477,13 @@ class TritonTemplateKernel(TritonKernel):
             inductor_meta["kernel_num_gb"] = num_gb
         if config.benchmark_kernel:
             flops = self.estimate_flops()
+
+            print(inductor_meta["kernel_name"])
+            for node in self.input_nodes:
+                print(node._current_origins)
+            print(flops)
+            if flops == 0:
+                breakpoint()
             inductor_meta["kernel_flop"] = flops
 
         template_args = f"""
@@ -560,7 +579,8 @@ class TritonTemplateKernel(TritonKernel):
             arg_defs, *_ = self.args.python_argdefs()
             code = IndentedBuffer()
             code.splice(gen_common_triton_imports())
-            code.splice(self.jit_lines())
+            foo = self.jit_lines()
+            code.splice(foo)
             code.writeline(
                 f"def {self.kernel_name}({', '.join(x.full_name() for x in arg_defs)}):"
             )

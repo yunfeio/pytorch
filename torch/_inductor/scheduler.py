@@ -28,11 +28,11 @@ import torch._inductor.async_compile  # noqa: F401 required to warm up AsyncComp
 from torch._dynamo.utils import counters, dynamo_timed
 from torch._inductor.codecache import LambdaFuture, PyCodeCache
 from torch._inductor.metrics import get_metric_table, is_metric_table_enabled
-from torch.fx.experimental.symbolic_shapes import free_symbols, free_unbacked_symbols
+from torch.fx.experimental.symbolic_shapes import free_symbols
 from torch.utils._ordered_set import OrderedSet
 from torch.utils._sympy.symbol import free_symbol_is_type, symbol_is_type, SymT
 from torch.utils._triton import has_triton
-from torch.utils.flop_counter import flop_registry, FlopCounterMode
+from torch.utils.flop_counter import countable
 
 from . import comms, config, dependencies, ir, metrics
 from .analyze_preserves_zero_mask import can_codegen_without_upcasts
@@ -40,13 +40,7 @@ from .codegen.common import BackendFeature, get_scheduling_for_device, Kernel
 from .comm_analysis import estimate_nccl_collective_runtime
 from .dependencies import Dep, MemoryDep, StarDep, WeakDep
 from .exc import GPUTooOldForTriton, TritonMissing
-from .ir import (
-    ComputedBuffer,
-    get_device_type,
-    GraphPartitionSignature,
-    MultiOutput,
-    MultiOutputLayout,
-)
+from .ir import get_device_type, GraphPartitionSignature, MultiOutput, MultiOutputLayout
 from .loop_body import LoopBody
 from .memory import MemoryPlanningInfoForBuffer, MemoryPlanningInfoForNode
 from .runtime.runtime_utils import green_text, red_text
@@ -54,6 +48,7 @@ from .sizevars import SimplifyIndexing
 from .utils import (
     cache_on_self,
     cmp,
+    count_flops_fx,
     device_need_guard,
     get_device_tflops,
     get_dtype_size,
@@ -786,10 +781,11 @@ class BaseSchedulerNode:
         if fx_node is None:
             return None
         op = fx_node.target._overloadpacket
-        if op not in flop_registry:
+        if not countable(op):
             return None
 
-        return count_flops_fx(fx_node)
+        flops = count_flops_fx(fx_node)
+        return flops
 
     @cache_on_self
     def get_estimated_runtime(self) -> float:
@@ -832,7 +828,14 @@ class BaseSchedulerNode:
             return 0
 
         if isinstance(self, FusedSchedulerNode):
-            flops_est = float(sum(filter(lambda x: x is not None, (node.get_estimated_runtime() for node in self.get_nodes()))))
+            flops_est = float(
+                sum(
+                    filter(
+                        lambda x: x is not None,
+                        (node.get_estimated_runtime() for node in self.get_nodes()),
+                    )
+                )
+            )
         else:
             flops_est = self.estimate_flops()
 
@@ -961,7 +964,6 @@ def _prune_redundant_deps(
     if deps_to_prune:
         node.unmet_dependencies = node.unmet_dependencies - deps_to_prune
         node.set_read_writes(node.read_writes.remove_reads(deps_to_prune))
-
 
 
 class ExternKernelSchedulerNode(BaseSchedulerNode):
@@ -4689,16 +4691,3 @@ class BaseScheduling:
         and memory copy time in milliseconds on randomly generated inputs.
         """
         raise NotImplementedError
-
-
-def count_flops_fx(node: torch.fx.Node) -> int | None:
-    success, args, kwargs = torch._inductor.fx_utils.get_fake_args_kwargs(node)
-
-    if success:
-        with FlopCounterMode(display=False) as flop_counter_mode:
-            with V.fake_mode:
-                node.target(*args, **kwargs)
-
-        counted_flops = flop_counter_mode.get_total_flops()
-        return counted_flops
-    return None

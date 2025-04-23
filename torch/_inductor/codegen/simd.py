@@ -897,12 +897,12 @@ class SIMDKernel(Kernel[CSEVariableType], Generic[CSEVariableType]):
             return tuple(map(fn, value))
         return fn(value)
 
-    def estimate_flops(self) -> int:
-        f = [
+    def estimate_flops(self) -> Optional[int]:
+        flops = [
             node.estimate_flops()
             for node in NodeScheduleMarker.only_nodes(self.features.node_schedule)
         ]
-        return sum(filter(None, f))
+        return sum(filter(None, flops))
 
     def estimate_kernel_num_bytes(self):
         """
@@ -1540,7 +1540,9 @@ class SIMDScheduling(BaseScheduling):
                             kernel.cse.invalidate(OrderedSet())
 
         if not isinstance(partial_code, str):
-            partial_code.finalize_hook("<DEF_KERNEL>")
+            origins = OrderedSet([template_node.node.origin_node])
+            with ir.IRNode.current_origins(origins):
+                partial_code.finalize_hook("<DEF_KERNEL>")
             partial_code.finalize_hook("<ARGDEFS>", strict=False)
         # finalize must be called after adding epilogue above
 

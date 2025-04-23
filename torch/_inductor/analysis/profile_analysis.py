@@ -10,7 +10,7 @@ from torch._inductor.analysis.device_info import DeviceInfo, lookup_device_info
 from torch._inductor.utils import tabulate_2d, zip_dicts
 from torch.utils import _pytree as pytree
 from torch.utils._ordered_set import OrderedSet
-from torch.utils.flop_counter import flop_registry
+from torch.utils.flop_counter import countable, flop_registry
 
 
 ATEN_PREFIX = "aten::"
@@ -117,9 +117,10 @@ def mm_adapter(
 ) -> tuple[tuple[Any], dict[Any, Any]]:
     return shapes, {}
 
+
 def _parse_kernel_name(name: str) -> Optional[str]:
     if name.startswith(ATEN_PREFIX):
-        return name[len(ATEN_PREFIX):]
+        return name[len(ATEN_PREFIX) :]
     elif "convolution" in name:
         return "convolution"
     elif "addmm" in name:
@@ -133,7 +134,6 @@ def _parse_kernel_name(name: str) -> Optional[str]:
     else:
         return None
 
-    
 
 def _calculate_flops(event: dict[str, Any]) -> int:
     """
@@ -149,7 +149,7 @@ def _calculate_flops(event: dict[str, Any]) -> int:
         return 0
 
     op_obj = getattr(torch.ops.aten, op_name, None)
-    if op_obj not in flop_registry:
+    if op_obj is None or not countable(op_obj):
         return 0
 
     flop_function = flop_registry[op_obj]
@@ -213,7 +213,6 @@ def _augment_trace_helper(data: dict[str, Any]) -> dict[str, Any]:
             event_str = f"kernel has no External id: {event}"
             info(event_str)
             continue
-
 
         external_op = extern_mapping[event["args"]["External id"]][0]
         flops = _calculate_flops(external_op)

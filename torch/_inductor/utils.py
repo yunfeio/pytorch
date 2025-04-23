@@ -2901,3 +2901,20 @@ def zip_dicts(
         value2 = dict2.get(key, d2_default)
 
         yield key, value1, value2
+
+
+def count_flops_fx(node: torch.fx.Node) -> int | None:
+    from .virtualized import V
+
+    success, args, kwargs = torch._inductor.fx_utils.get_fake_args_kwargs(node)
+
+    if success:
+        with torch.utils.flop_counter.FlopCounterMode(
+            display=False
+        ) as flop_counter_mode:
+            with V.fake_mode:
+                node.target(*args, **kwargs)
+
+        counted_flops = flop_counter_mode.get_total_flops()
+        return counted_flops
+    return None

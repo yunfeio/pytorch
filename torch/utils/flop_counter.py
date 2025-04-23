@@ -127,7 +127,6 @@ def conv_flop_count(
     Returns:
         int: the number of flops
     """
-
     batch_size = x_shape[0]
     conv_shape = (x_shape if transposed else out_shape)[2:]
     c_out, c_in, *filter_size = w_shape
@@ -791,3 +790,12 @@ class _FlopCounterMode(TorchDispatchMode):
         # no further decomposition; execute & count flops
         out = func(*args, **kwargs)
         return self.counter._count_flops(func._overloadpacket, out, args, kwargs)
+
+def countable(node: torch.fx.Node) -> bool:
+    if not hasattr(node, "target"):
+        return False
+    target = node.target
+    if not hasattr(target, "_overloadpacket"):
+        return False
+    at = target._overloadpacket
+    return at in flop_registry

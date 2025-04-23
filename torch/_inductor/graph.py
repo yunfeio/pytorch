@@ -92,6 +92,7 @@ from .runtime.autotune_cache import AutotuneCacheBundler
 from .sizevars import SizeVarAllocator
 from .utils import (
     convert_shape_to_inductor,
+    count_flops_fx,
     gather_origins,
     get_cloned_parameter_buffer_name,
     get_donated_idxs,
@@ -627,8 +628,6 @@ class GraphLowering(torch.fx.Interpreter):
 
         # only grouped convolutions benchmarked as slower in conv samples for inference only
         if is_inference:
-            from torch._inductor.scheduler import count_flops_fx
-
             flop_counts: dict[str, float] = defaultdict(float)
             for node in conv_nodes:
                 counted_flops = count_flops_fx(node)

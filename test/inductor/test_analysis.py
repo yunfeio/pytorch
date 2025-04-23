@@ -1,11 +1,11 @@
 # Owner(s): ["module: inductor"]
 
 import json
+import re
 import tempfile
 import uuid
 from io import StringIO
 from unittest.mock import patch
-import re
 
 import torch
 import torch.nn.functional as F
@@ -16,7 +16,12 @@ from torch._inductor.analysis.profile_analysis import (
     JsonProfile,
     main,
 )
-from torch._inductor.utils import tabulate_2d, zip_dicts, fresh_inductor_cache
+from torch._inductor.utils import (
+    fresh_inductor_cache,
+    run_and_get_code,
+    tabulate_2d,
+    zip_dicts,
+)
 from torch.testing._internal.common_cuda import SM70OrLater
 from torch.testing._internal.common_device_type import (
     dtypes,
@@ -24,7 +29,6 @@ from torch.testing._internal.common_device_type import (
     skipIf,
 )
 from torch.testing._internal.common_utils import parametrize, run_tests, TestCase
-from torch._inductor.utils import run_and_get_code
 
 
 example_profile = """
@@ -207,6 +211,7 @@ def omni_model(device, dtype):
     return torch.compile(
         model, options={"benchmark_kernel": True, "profile_bandwidth": True}
     )
+
 
 def omni_model_no_bmm(device, dtype):
     T = cT(device, dtype)
@@ -396,6 +401,7 @@ class TestAnalysis(TestCase):
                         float(row[idx]) >= 0.0,
                         f"column values from column {idx} with header '{header[idx]}' is less than 0%: {row[idx]}",
                     )
+
     @skipIf(not SM70OrLater, "Requires sm70")
     @dtypes(torch.float, torch.float16)
     @parametrize("maxat", [(True, "TRITON")])
@@ -423,24 +429,33 @@ class TestAnalysis(TestCase):
         for line_number, line in enumerate(lines):
             if re.search(triton_mm_string_name, line):
                 seen = True
-                surrounding_lines = "\n".join(lines[line_number:min(len(lines), line_number + lookforward)])
+                surrounding_lines = "\n".join(
+                    lines[line_number : min(len(lines), line_number + lookforward)]
+                )
                 if re.search(r"kernel_flop", surrounding_lines):
-                    kernel_flop_number = int(re.search(r"'kernel_flop': (\d+)", surrounding_lines).group(1))
+                    kernel_flop_number = int(
+                        re.search(r"'kernel_flop': (\d+)", surrounding_lines).group(1)
+                    )
 
-                    breakpoint()
-                    self.assertNotEqual(kernel_flop_number, 0, "kernel_flop should be nonzero")
+                    self.assertNotEqual(
+                        kernel_flop_number, 0, "kernel_flop should be nonzero"
+                    )
                 else:
-                    breakpoint()
                     self.assertTrue(False, "kernel_flop not found in last 10 lines")
                 break
         self.assertTrue(seen)
-        kernel_flop_number = int(re.search(r"'kernel_flop': (\d+)", code_string).group(1))
-        breakpoint()
-        self.assertNotEqual(kernel_flop_number, 0)
 
     @skipIf(not SM70OrLater, "Requires sm70")
     @dtypes(torch.float, torch.double, torch.float16)
-    @parametrize("maxat", [(False, "ATEN,TRITON"), (True, "ATEN,TRITON"), (True, "ATEN"), (True, "TRITON")])
+    @parametrize(
+        "maxat",
+        [
+            (False, "ATEN,TRITON"),
+            (True, "ATEN,TRITON"),
+            (True, "ATEN"),
+            (True, "TRITON"),
+        ],
+    )
     def test_augment_trace_against_flop_counter(self, device, dtype, maxat):
         if device == "cpu":
             return
@@ -457,21 +472,19 @@ class TestAnalysis(TestCase):
             },
         )
         comp_omni()
-        breakpoint()
 
-        torch._dynamo.reset() # reset the cache
+        torch._dynamo.reset()  # reset the cache
         with fresh_inductor_cache():
             with torch.profiler.profile(record_shapes=True) as profile:
                 comp_omni()
 
-        torch._dynamo.reset() # reset the cache
+        torch._dynamo.reset()  # reset the cache
         with fresh_inductor_cache():
             with FlopCounterMode() as mode:
                 comp_omni()
 
         trace1, trace2 = trace_files()
         profile.export_chrome_trace(trace1)
-        breakpoint()
         with patch("sys.argv", [*prefix, "--augment_trace", trace1, trace2]):
             main()
 
@@ -518,7 +531,6 @@ class TestAnalysis(TestCase):
                     event["args"]["kernel_flop"],
                     flop_counts["Global"][torch.ops.aten.bmm],
                 )
-        breakpoint()
         print(seen_mm, seen_bmm, seen_baddbmm, seen_conv)
         self.assertTrue(seen_mm)
         self.assertTrue(seen_bmm)
