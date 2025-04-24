@@ -29,6 +29,7 @@ from torch._prims_common import (
     make_channels_last_strides_for,
 )
 from torch._subclasses.fake_tensor import FakeTensor
+from torch._utils_internal import full_aoti_runtime_assert
 from torch.fx.experimental._backward_state import BackwardState
 from torch.fx.experimental.sym_node import magic_methods, method_to_operator
 from torch.fx.experimental.symbolic_shapes import (
@@ -1873,6 +1874,15 @@ class GraphLowering(torch.fx.Interpreter):
                         self.ras_by_symbol.setdefault(i1, []).append(ra)
                     else:
                         make_assert(ra.expr, f"{ra.expr}")
+
+            if (
+                full_aoti_runtime_assert()
+                and n.target == torch.ops.aten._assert_scalar.default
+            ):
+                node_args, _ = self.fetch_args_kwargs_from_env(n)
+                # some assert may have been captured by unbacked symint assertion
+                if node_args[0] != True:  # noqa: E712
+                    make_assert(node_args[0], f"{node_args[0]} to be True")
 
         return result
 

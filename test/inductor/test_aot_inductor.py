@@ -3589,6 +3589,38 @@ class AOTInductorTestsTemplate:
 
             self.assertTrue(same(optimized(*example_inputs), m(*example_inputs)))
 
+            with self.assertRaisesRegex(Exception, "run_func_(.*) API call failed "):
+                optimized(torch.randn(100), torch.tensor(2))
+
+    @patch.dict(os.environ, {"TORCHINDUCTOR_SCALAR_ASSERTS_FULL": "1"})
+    def test_aoti_runtime_asserts_backed_symint(self):
+        from torch._utils_internal import full_aoti_runtime_assert
+
+        if not full_aoti_runtime_assert():
+            raise unittest.SkipTest("full runtime assert not turned on")
+
+        class Model(torch.nn.Module):
+            def forward(self, x):
+                y = x.reshape(100, -1).clone()
+                y = y + 1
+                return y
+
+        model = Model().to(self.device)
+        input1 = (torch.rand(100, device=self.device),)
+        input2 = (torch.rand(2099, device=self.device),)
+        dynamic_shapes = {
+            "x": {0: torch.export.Dim.DYNAMIC},
+        }
+        package_path = AOTIRunnerUtil.compile(
+            model,
+            input1,
+            dynamic_shapes=dynamic_shapes,
+        )
+        optimized = torch._inductor.aoti_load_package(package_path)
+        self.assertEqual(model(*input1), optimized(*input1))
+        with self.assertRaisesRegex(Exception, "run_func_(.*) API call failed "):
+            optimized(*input2)
+
     def test_index_put_with_none_index(self):
         # index_put falls back in the deterministic mode
         with DeterministicGuard(True):
