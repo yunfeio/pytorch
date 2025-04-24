@@ -101,7 +101,11 @@ class TestQuantization(TestCase):
     @torch._inductor.config.patch(
         pre_grad_fusion_options={},
         post_grad_fusion_options={
-            "activation_quantization_aten_pass": {"quant_type": "torch.float8_e5m2"},
+            "activation_quantization_aten_pass": {
+                "quant_type": "torch.float8_e5m2",
+                "use_scaling": True,
+                "size_in_mb": 0.0,
+            },
         },
     )
     def test_activation_quantization_aten(self):
@@ -127,7 +131,7 @@ class TestQuantization(TestCase):
             counters["inductor"]["activation_quantization_fwd_aten_pass"], 2
         )
         self.assertEqual(
-            counters["inductor"]["activation_quantization_bwd_aten_pass"], 4
+            counters["inductor"]["activation_quantization_bwd_aten_pass"], 6
         )
         self.assertTrue(torch.allclose(ref, res))
         counters.clear()
@@ -149,7 +153,7 @@ class TestQuantization(TestCase):
             counters["inductor"]["activation_quantization_fwd_aten_pass"], 2
         )
         self.assertEqual(
-            counters["inductor"]["activation_quantization_bwd_aten_pass"], 2
+            counters["inductor"]["activation_quantization_bwd_aten_pass"], 3
         )
         self.assertTrue(torch.allclose(ref, res))
         counters.clear()
