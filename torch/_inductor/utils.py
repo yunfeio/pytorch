@@ -1522,6 +1522,16 @@ def use_cutlass_template(layout: Layout, m: int, n: int, k: int) -> bool:
     return res
 
 
+def use_decompose_k_choice(m: int, n: int, k: int) -> bool:
+    from torch._inductor.virtualized import V
+
+    decompose_k_threshold = 16
+
+    return V.graph.sizevars.evaluate_expr(
+        sympy.Ge(k, decompose_k_threshold * m)
+    ) and V.graph.sizevars.evaluate_expr(sympy.Ge(k, decompose_k_threshold * n))
+
+
 @functools.lru_cache(None)
 def _rocm_native_device_arch_name(device: str) -> str:
     return torch.cuda.get_device_properties(device).gcnArchName
