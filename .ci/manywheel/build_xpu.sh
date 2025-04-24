@@ -25,6 +25,8 @@ source /opt/intel/oneapi/mpi/latest/env/vars.sh
 export USE_STATIC_MKL=1
 export USE_ONEMKL=1
 export USE_XCCL=1
+# Need update kineto
+export USE_KINETO=0
 
 WHEELHOUSE_DIR="wheelhousexpu"
 LIBTORCH_HOUSE_DIR="libtorch_housexpu"
