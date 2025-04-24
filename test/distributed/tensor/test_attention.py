@@ -23,16 +23,15 @@ from torch.distributed._tensor.experimental._attention import (
     set_rotate_method,
 )
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.tensor import (
-    DeviceMesh,
-    distribute_tensor,
-    DTensor,
-    Shard,
-)
+from torch.distributed.tensor import DeviceMesh, distribute_tensor, DTensor, Shard
 from torch.distributed.tensor.debug import CommDebugMode
 from torch.distributed.tensor.parallel import parallelize_module
 from torch.nn.attention import sdpa_kernel, SDPBackend
-from torch.nn.attention.flex_attention import _mask_mod_signature, create_block_mask
+from torch.nn.attention.flex_attention import (
+    _mask_mod_signature,
+    BlockMask,
+    create_block_mask,
+)
 from torch.testing._internal.common_cuda import (
     PLATFORM_SUPPORTS_CUDNN_ATTENTION,
     PLATFORM_SUPPORTS_FLASH_ATTENTION,
@@ -437,6 +436,7 @@ class RingAttentionTest(DTensorTestBase):
                 },
             )
 
+
 class RingFlexAttentionTest(DTensorTestBase):
     @property
     def world_size(self) -> int:
@@ -503,14 +503,30 @@ class RingFlexAttentionTest(DTensorTestBase):
             mesh_dim_names=("cp",),
         )
 
+        # shard the QKV tensors
         sharding = Shard(2)
-        q_dist = distribute_tensor(q, device_mesh, [sharding])
-        k_dist = distribute_tensor(k, device_mesh, [sharding])
-        v_dist = distribute_tensor(v, device_mesh, [sharding])
+        q_local = distribute_tensor(q, device_mesh, [sharding]).to_local()
+        k_local = distribute_tensor(k, device_mesh, [sharding]).to_local()
+        v_local = distribute_tensor(v, device_mesh, [sharding]).to_local()
 
-        with CPMode():
-            dist_out = flex_attention(q_dist, k_dist, v_dist, block_mask=block_mask)
+        block_mask_post_sharding = create_block_mask(
+            causal_mask,
+            B=bs,
+            H=nheads,
+            Q_LEN=q_local.size(2),
+            KV_LEN=k_local.size(2),
+            device=self.device_type,
+        )
+        # NOTE: flex_attention checks block_mask shape and input shape before
+        # calling into flex_attention_hop.
+        with CPMode(device_mesh, block_mask):
+            out = flex_attention(
+                q_local, k_local, v_local, block_mask=block_mask_post_sharding
+            )
 
+        # all-gather the output
+        assert isinstance(out, torch.Tensor)
+        dist_out = DTensor.from_local(out, device_mesh, [Shard(2)])
         assert isinstance(dist_out, DTensor)
         torch.testing.assert_close(
             dist_out.full_tensor(), expect_out, atol=1e-1, rtol=1e-2
@@ -518,8 +534,49 @@ class RingFlexAttentionTest(DTensorTestBase):
 
 
 class CPMode(TorchDispatchMode):
-    def __init__(self):
+    def __init__(self, device_mesh: DeviceMesh, block_mask: BlockMask):
         super().__init__()
+
+        block_mask_tuple = block_mask.as_tuple()
+        assert len(block_mask_tuple) == 13
+        Q_LEN: int = block_mask_tuple[0]
+        KV_LEN: int = block_mask_tuple[1]
+
+        mask_mod: _mask_mod_signature = block_mask_tuple[-1]
+        Q_BLOCK_SIZE: int = block_mask_tuple[-3]
+        KV_BLOCK_SIZE: int = block_mask_tuple[-2]
+
+        # TODO: support other KV block sizes
+        assert Q_BLOCK_SIZE == KV_BLOCK_SIZE
+
+        # resolve CP device mesh info
+        assert device_mesh.ndim == 1
+        cp_rank = device_mesh.get_local_rank()
+        cp_group_size = device_mesh.size()
+        device_type = device_mesh.device_type
+
+        # the sharding function is configurable
+        sharding_map = regular_sharding(
+            Q_LEN, KV_LEN, Q_BLOCK_SIZE, KV_BLOCK_SIZE, cp_group_size, device_type
+        )
+
+        # rewrite block_mask
+        cp_mask_mod = rewrite_mask_mod_for_cp(
+            mask_mod, cp_rank, Q_BLOCK_SIZE, sharding_map
+        )
+        cp_block_mask = create_block_mask_cached(
+            cp_mask_mod,
+            B=1,
+            H=1,
+            M=Q_LEN // cp_group_size,
+            N=KV_LEN,
+            device=device_type,
+            BLOCK_SIZE=(Q_BLOCK_SIZE, KV_BLOCK_SIZE),
+        )
+
+        self._device_mesh = device_mesh
+        self._sharding_map = sharding_map
+        self._cp_block_mask = cp_block_mask
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         return func(*args, **kwargs)
@@ -543,7 +600,9 @@ def regular_sharding(
 ) -> torch.Tensor:
     assert Q_LEN == KV_LEN
     assert Q_BLOCK_SIZE == KV_BLOCK_SIZE
-    assert Q_LEN % (Q_BLOCK_SIZE * cp_size) == 0, f"context parallel requires even sharding for now"
+    assert (
+        Q_LEN % (Q_BLOCK_SIZE * cp_size) == 0
+    ), f"context parallel requires even sharding for now"
     q_num_blocks = Q_LEN // Q_BLOCK_SIZE
     local_num_blk = q_num_blocks // cp_size
     return torch.arange(q_num_blocks, device=device_type).view(cp_size, local_num_blk)
@@ -571,9 +630,46 @@ def rewrite_mask_mod_for_cp(
 
 
 @flex_attention_hop.py_impl(CPMode)
+def cp_flex_attention_dispatch_mode(
+    mode: CPMode,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    score_mod: Callable,
+    block_mask: tuple,
+    scale: float,
+    kernel_options: dict[str, Any],
+    score_mod_other_buffers: tuple = (),
+    mask_mod_other_buffers: tuple = (),
+) -> tuple[torch.Tensor, torch.Tensor]:
+    sharding = Shard(2)
+    # q_dist = DTensor.from_local(query, mode.device_mesh, [sharding])
+    k_dist = DTensor.from_local(key, mode._device_mesh, [sharding])
+    v_dist = DTensor.from_local(value, mode._device_mesh, [sharding])
+    k_global = k_dist.full_tensor()
+    v_global = v_dist.full_tensor()
+
+    # TODO: add kv reorder
+    sharding_map = mode._sharding_map
+    assert sharding_map is not None
+
+    out, lse = flex_attention_hop(
+        query,
+        k_global,
+        v_global,
+        score_mod=score_mod,  # TODO: rewrite score_mod for cp
+        block_mask=mode._cp_block_mask.as_tuple(),
+        scale=scale,
+        kernel_options=kernel_options,
+        score_mod_other_buffers=score_mod_other_buffers,
+        mask_mod_other_buffers=mask_mod_other_buffers,
+    )
+
+    return out, lse
+
+
 @flex_attention_hop.py_impl(DTensor)
 def cp_flex_attention(
-    mode,
     query: DTensor,
     key: DTensor,
     value: DTensor,
@@ -584,6 +680,7 @@ def cp_flex_attention(
     score_mod_other_buffers: tuple = (),
     mask_mod_other_buffers: tuple = (),
 ) -> tuple[DTensor, DTensor]:
+    print("cp_flex_attention")
     q_local = query.to_local()
     k_local = key.full_tensor()
     v_local = value.full_tensor()
