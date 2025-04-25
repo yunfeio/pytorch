@@ -24,7 +24,7 @@ else
 fi
 EOF
 sudo chmod +x /opt/cache/bin/nvcc
-sudo mv /opt/cache/bin/nvcc /opt/cache/lib/
+# sudo mv /opt/cache/bin/nvcc /opt/cache/lib/
 
 # shellcheck source=./common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
