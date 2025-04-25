@@ -48,6 +48,7 @@ from torch._utils_internal import set_pytorch_distributed_envs_from_justknobs
 from torch.monitor import _WaitCounter
 from torch.overrides import handle_torch_function, has_torch_function
 from torch.utils._typing_utils import not_none
+from typing_extensions import deprecated
 
 from .c10d_logger import _exception_logger, _time_logger
 from .constants import default_pg_nccl_timeout, default_pg_timeout
@@ -4995,11 +4996,7 @@ def split_group(
 
     # if the parent backend does not support splitting, raise error
     # currently this API only support NCCL backend
-    if (
-        not parent_backend
-        or not parent_backend.supports_splitting
-        or not isinstance(parent_backend, ProcessGroupNCCL)
-    ):
+    if not parent_backend or not parent_backend.supports_splitting:
         raise RuntimeError(
             "No backend for the parent process group or its backend does not support splitting"
         )
@@ -5016,11 +5013,7 @@ def split_group(
     backend = Backend(parent_backend_str)
     backend_config = BackendConfig(backend)
 
-    if pg_options is not None:
-        assert isinstance(pg_options, ProcessGroupNCCL.Options), (
-            "Expected pg_options argument to be of type ProcessGroupNCCL.Options"
-        )
-    else:
+    if pg_options is None:
         # default pg_options same as the parent process group
         pg_options = parent_backend.options
 
@@ -5064,18 +5057,36 @@ def split_group(
         group_rank,
         len(my_group),
     )
-    backend_type = ProcessGroup.BackendType.NCCL
     pg.bound_device_id = device_id
-    pg._set_default_backend(backend_type)
-
     pg_options._timeout = timeout
     pg_options.split_from = parent_backend
     pg_options.split_color = _process_group_color(my_group)
     pg_options.global_ranks_in_group = global_ranks_in_my_group
     pg_options.group_name = group_name
-    backend_class = ProcessGroupNCCL(
-        prefix_store, group_rank, len(my_group), pg_options
-    )
+
+    if parent_backend_str == Backend.NCCL:
+        backend_type = ProcessGroup.BackendType.NCCL
+        backend_class = ProcessGroupNCCL(
+            prefix_store, group_rank, len(my_group), pg_options
+        )
+    else:
+        assert (
+            parent_backend_str.upper() in Backend._plugins
+        ), f"Unknown c10d backend type {parent_backend_str.upper()}"
+        backend_plugin = Backend._plugins[parent_backend_str.upper()]
+        creator_fn = backend_plugin.creator_fn
+        extended_api = backend_plugin.extended_api
+        backend_type = ProcessGroup.BackendType.CUSTOM
+        assert (
+            extended_api
+        ), "Only plugins with extended backend apis are supported with split_group"
+        dist_backend_opts = _DistributedBackendOptions()
+        dist_backend_opts.store = prefix_store
+        dist_backend_opts.group_rank = group_rank
+        dist_backend_opts.group_size = len(my_group)
+        backend_class = creator_fn(dist_backend_opts, pg_options)
+
+    pg._set_default_backend(backend_type)
     backend_class._set_sequence_number_for_group()
 
     pg._register_backend(torch.device("cuda"), backend_type, backend_class)
@@ -5221,9 +5232,9 @@ def _new_group_with_tag(
     if device_id is None:
         device_id = default_pg.bound_device_id
     elif default_pg.bound_device_id is not None:
-        assert device_id == default_pg.bound_device_id, (
-            "Mismatched bound device between new pg and the default pg."
-        )
+        assert (
+            device_id == default_pg.bound_device_id
+        ), "Mismatched bound device between new pg and the default pg."
     default_backend, default_store = _world.pg_map[default_pg]
     global_rank = default_pg.rank()
     global_world_size = default_pg.size()
@@ -5543,9 +5554,9 @@ def _find_pg_by_ranks_and_tag(tag: str, ranks: list[int]) -> Optional[ProcessGro
 def _find_or_create_pg_by_ranks_and_tag(
     tag: str, ranks: list[int], stride: int
 ) -> ProcessGroup:
-    assert len(ranks) % stride == 0, (
-        f"Ranks length ({len(ranks)}) must be divisible by stride ({stride})"
-    )
+    assert (
+        len(ranks) % stride == 0
+    ), f"Ranks length ({len(ranks)}) must be divisible by stride ({stride})"
 
     my_rank = get_rank()
     my_ranks = None
