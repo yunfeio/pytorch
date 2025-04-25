@@ -9,16 +9,15 @@ set -ex -o pipefail
 mkdir -p /tmp/sccache_nvcc_stuff
 sudo tee /opt/cache/bin/nvcc > /dev/null <<'EOF'
 #!/bin/sh
+echo "\$@" > /tmp/sccache_nvcc_stuff/nvcc_args.txt
+for arg in "$@"; do
+  if [[ $arg == /tmp/sccache_nvcc* ]]; then
+    cp "$arg" /tmp/sccache_nvcc_stuff
+    break
+  fi
+done
 
 if [ \$(env -u LD_PRELOAD ps -p \$PPID -o comm=) != sccache ]; then
-  echo "\$@" > /tmp/sccache_nvcc_stuff/nvcc_args.txt
-  for arg in "$@"; do
-    if [[ $arg == /tmp/sccache_nvcc* ]]; then
-      cp "$arg" /tmp/sccache_nvcc_stuff
-      break
-    fi
-  done
-
   exec sccache $(which nvcc) "\$@"
 else
   exec $(which nvcc) "\$@"
