@@ -7,7 +7,7 @@ set -ex -o pipefail
 # need to set it yourself.
 
 mkdir -p sccache_nvcc_stuff
-sudo cat >"/opt/cache/bin/nvcc" <<EOF
+sudo tee /opt/cache/bin/nvcc > /dev/null <<'EOF'
 #!/bin/sh
 
 if [ \$(env -u LD_PRELOAD ps -p \$PPID -o comm=) != sccache ]; then
@@ -25,6 +25,8 @@ else
   exec $(which nvcc) "\$@"
 fi
 EOF
+sudo chmod +x /opt/cache/bin/nvcc
+sudo mv /opt/cache/bin/nvcc /opt/cache/lib/
 
 # shellcheck source=./common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
