@@ -209,3 +209,9 @@ def _dynamo_config_patch_proxy_dunder_call(
             return func(*args, **kwargs)
 
     return inner
+
+
+def to_int(x: Union[torch.Tensor, int]) -> int:
+    if isinstance(x, torch.Tensor):
+        return x.size(1)
+    return x
