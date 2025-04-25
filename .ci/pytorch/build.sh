@@ -6,16 +6,15 @@ set -ex -o pipefail
 # (This is set by default in the Docker images we build, so you don't
 # need to set it yourself.
 
-mkdir -p sccache_nvcc_stuff
+mkdir -p /tmp/sccache_nvcc_stuff
 sudo tee /opt/cache/bin/nvcc > /dev/null <<'EOF'
 #!/bin/sh
 
 if [ \$(env -u LD_PRELOAD ps -p \$PPID -o comm=) != sccache ]; then
-  echo "\$@" > /var/lib/jenkins/sccache_nvcc_stuff/nvcc_args.txt
+  echo "\$@" > /tmp/sccache_nvcc_stuff/nvcc_args.txt
   for arg in "$@"; do
     if [[ $arg == /tmp/sccache_nvcc* ]]; then
-
-      cp "$arg" /tmp/sccache_nvcc_stuff/
+      cp "$arg" /tmp/sccache_nvcc_stuff
       break
     fi
   done
@@ -435,7 +434,4 @@ if [[ "$BUILD_ENVIRONMENT" != *s390x* && "$BUILD_ENVIRONMENT" != *-bazel-* ]]; t
   print_sccache_stats
 fi
 
-mkdir /tmp/nvcc_stuff
-ls /tmp/
-cp /tmp/sccache_nvcc* /tmp/nvcc_stuff
-tar czf nvcc_stuff.tar.gz /tmp/nvcc_stuff
+tar czf nvcc_stuff.tar.gz /tmp/sccache_nvcc_stuff
