@@ -2631,6 +2631,8 @@ def handle_traced_output(example_value, tx, proxy, options, subclass_type, targe
         tx.output.side_effects._track_obj(
             proxy, var, mutation_type_cls=AttributeMutationNew
         )
+        # See Note [Hopifying Context Managers]
+        tx.output.current_tracer.fx_node_name_to_vt[proxy.node.name] = var
         return var
     elif (
         hasattr(proxy.node.target, "__name__")
