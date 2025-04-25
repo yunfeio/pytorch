@@ -6,6 +6,25 @@ set -ex -o pipefail
 # (This is set by default in the Docker images we build, so you don't
 # need to set it yourself.
 
+mkdir -p sccache_nvcc_stuff
+cat >"/opt/cache/bin/nvcc" <<EOF
+#!/bin/sh
+
+if [ \$(env -u LD_PRELOAD ps -p \$PPID -o comm=) != sccache ]; then
+  echo "\$@" > /var/lib/jenkins/sccache_nvcc_stuff/nvcc_args.txt
+  for arg in "$@"; do
+    if [[ $arg == /tmp/sccache_nvcc* ]]; then
+      cp "$sccache_file" /tmp/sccache_nvcc_stuff/
+      break
+    fi
+  done
+
+  exec sccache $(which nvcc) "\$@"
+else
+  exec $(which nvcc) "\$@"
+fi
+EOF
+
 # shellcheck source=./common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 # shellcheck source=./common-build.sh
