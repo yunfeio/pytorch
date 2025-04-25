@@ -16,7 +16,6 @@ import warnings
 from collections import namedtuple
 from datetime import timedelta
 from typing import Any, Callable, Optional, TYPE_CHECKING, Union
-from typing_extensions import deprecated
 
 import torch
 from torch._C import _DistStoreError as DistStoreError
@@ -1655,9 +1654,9 @@ def init_process_group(
     if "torch._dynamo" in sys.modules:
         torch._dynamo.trace_rules.clear_lru_cache()
 
-    assert (store is None) or (init_method is None), (
-        "Cannot specify both init_method and store."
-    )
+    assert (store is None) or (
+        init_method is None
+    ), "Cannot specify both init_method and store."
 
     if store is not None:
         assert world_size > 0, "world_size must be positive if using store"
@@ -1740,8 +1739,7 @@ def init_process_group(
         _update_default_pg(default_pg)
 
     _world.pg_group_ranks[GroupMember.WORLD] = {  # type: ignore[index]
-        i: i
-        for i in range(GroupMember.WORLD.size())  # type: ignore[attr-defined]
+        i: i for i in range(GroupMember.WORLD.size())  # type: ignore[attr-defined]
     }
     _backend = _world.pg_map[not_none(GroupMember.WORLD)][0]
     _default_pg_init_method = init_method
@@ -1958,9 +1956,9 @@ def _new_process_group_helper(
             if not is_nccl_available():
                 raise RuntimeError("Distributed package doesn't have NCCL built in")
             if backend_options is not None:
-                assert isinstance(backend_options, ProcessGroupNCCL.Options), (
-                    "Expected backend_options argument to be of type ProcessGroupNCCL.Options"
-                )
+                assert isinstance(
+                    backend_options, ProcessGroupNCCL.Options
+                ), "Expected backend_options argument to be of type ProcessGroupNCCL.Options"
                 if backend_options._timeout != timeout:
                     warnings.warn(
                         "backend_options._timeout was specified, "
@@ -2000,9 +1998,9 @@ def _new_process_group_helper(
             )
             backend_type = ProcessGroup.BackendType.XCCL
         else:
-            assert backend_str.upper() in Backend._plugins, (
-                f"Unknown c10d backend type {backend_str.upper()}"
-            )
+            assert (
+                backend_str.upper() in Backend._plugins
+            ), f"Unknown c10d backend type {backend_str.upper()}"
 
             backend_plugin = Backend._plugins[backend_str.upper()]
             creator_fn = backend_plugin.creator_fn
@@ -3470,9 +3468,9 @@ def recv_object_list(
     )
 
     rank_objects = recv(object_tensor, src=src, group=group, group_src=group_src)
-    assert rank_sizes == rank_objects, (
-        "Mismatch in return ranks for object sizes and objects."
-    )
+    assert (
+        rank_sizes == rank_objects
+    ), "Mismatch in return ranks for object sizes and objects."
     # Deserialize objects using their stored sizes.
     offset = 0
     for i, obj_size in enumerate(object_sizes_tensor):
@@ -5063,6 +5061,30 @@ def split_group(
     pg_options.split_color = _process_group_color(my_group)
     pg_options.global_ranks_in_group = global_ranks_in_my_group
     pg_options.group_name = group_name
+
+    if parent_backend_str == Backend.NCCL:
+        backend_type = ProcessGroup.BackendType.NCCL
+        backend_class = ProcessGroupNCCL(
+            prefix_store, group_rank, len(my_group), pg_options
+        )
+    else:
+        assert (
+            parent_backend_str.upper() in Backend._plugins
+        ), f"Unknown c10d backend type {parent_backend_str.upper()}"
+        backend_plugin = Backend._plugins[parent_backend_str.upper()]
+        creator_fn = backend_plugin.creator_fn
+        extended_api = backend_plugin.extended_api
+        backend_type = ProcessGroup.BackendType.CUSTOM
+        assert (
+            extended_api
+        ), "Only plugins with extended backend apis are supported with split_group"
+        dist_backend_opts = _DistributedBackendOptions()
+        dist_backend_opts.store = prefix_store
+        dist_backend_opts.group_rank = group_rank
+        dist_backend_opts.group_size = len(my_group)
+        backend_class = creator_fn(dist_backend_opts, pg_options)
+
+    pg._set_default_backend(backend_type)
 
     if parent_backend_str == Backend.NCCL:
         backend_type = ProcessGroup.BackendType.NCCL
