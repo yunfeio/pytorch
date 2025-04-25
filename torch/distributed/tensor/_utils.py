@@ -246,6 +246,60 @@ def compute_global_tensor_info(
     return tensor_shape, tensor_stride
 
 
+def compute_global_tensor_shape(
+    shape: torch.Size, mesh: DeviceMesh, placements: Sequence[Placement]
+) -> torch.Size:
+    """
+    Compute the global size of a DTensor from the given local tensor shape,
+    the mesh and placements. Different from `compute_global_tensor_info`,
+    which assumes sharding is even, this util allgathers local shards' shapes
+    from all ranks and thus can support uneven sharding.
+    NOTE: Currently this function only supports 1D mesh.
+
+    Args:
+        shape (:class:`torch.Size`):
+            Shape of the local tensor
+        mesh (:class:`DeviceMesh`):
+            Object which describes the mesh topology
+            of devices for the DTensor.
+        placements (Sequence[:class:`Placement`]]):
+            The attribute of the DTensor that describes its layout
+            on the mesh topology.
+
+    Return:
+        tensor_shape: Shape of the global DTensor.
+    """
+    if mesh.ndim > 1:
+        raise NotImplementedError(
+            "compute_global_tensor_shape only supports 1D mesh for now."
+        )
+    if len(placements) != 1:
+        raise NotImplementedError(
+            "compute_global_tensor_shape only supports 1 placement for now."
+        )
+
+    if isinstance(placements[0], Replicate):
+        return shape
+    elif isinstance(placements[0], Shard):
+        local_shape = torch.tensor(list(shape))
+        gathered_shaped_tensors = [
+            torch.empty_like(local_shape, device=local_shape.device)
+            for _ in range(torch.distributed.get_world_size())
+        ]
+        torch.distributed.all_gather(gathered_shaped_tensors, local_shape)
+        sharded_dim_sum = 0
+        for shape_tensor in gathered_shaped_tensors:
+            shape_tensor_list = shape_tensor.tolist()
+            sharded_dim_sum += shape_tensor_list[placements[0].dim]
+        global_shape = list(shape)
+        global_shape[placements[0].dim] = sharded_dim_sum
+        return torch.Size(global_shape)
+    else:
+        raise NotImplementedError(
+            f"Placement type {type(placements[0])} not supported."
+        )
+
+
 def try_find_mesh_from_args(
     op_call: torch._ops.OpOverload, args: Sequence[object]
 ) -> DeviceMesh:
