@@ -2186,7 +2186,7 @@ class Scan(Loops):
         scan_vars: Sequence[Symbol],
     ) -> None:
         idx = self.reindex(vars, scan_vars)
-        values = tuple(inner_fn(idx) for inner_fn in self.inner_fns)
+        values = tuple(inner_fn(idx, scan_vars) for inner_fn in self.inner_fns)
         result = ops.scan(self.dtypes, self.combine_fn, values)
         return ops.store(
             output_name or "unnamed", indexer(idx), result[self.output_index]
@@ -2212,20 +2212,20 @@ class Scan(Loops):
         index = self._index(self.ranges)
         rindex = self._index(self.scan_ranges, SymT.R0_INDEX)
         idx = self.reindex(index, rindex)
-        return (idx,)
+        return (idx, rindex)
 
     def inner_fn_free_symbols(self, unbacked_only: bool = False) -> OrderedSet[Symbol]:
-        index = self._index(self.ranges)
-        rindex = self._index(self.scan_ranges, SymT.R0_INDEX)
-        idx = self.reindex(index, rindex)
-        return extract_free_symbols(self.inner_fn, idx, unbacked_only=unbacked_only)
+        idx, rindex = self.inner_fn_args()
+        return extract_free_symbols(
+            self.inner_fn, idx, rindex, unbacked_only=unbacked_only
+        )
 
     @classmethod
     def create(  # type: ignore[override]
         cls,
         device: torch.device,
         dtypes: tuple[torch.dtype, ...],
-        inner_fns: tuple[Callable[[Sequence[Expr]], Any], ...],
+        inner_fns: tuple[Callable[[Sequence[Expr], Sequence[Expr]], Any], ...],
         size: list[Integer],
         axis: int,
         combine_fn: Callable[[tuple[Any, ...], tuple[Any, ...]], tuple[Any, ...]],
@@ -2257,7 +2257,9 @@ class Scan(Loops):
                 Pointwise.create(
                     device=device,
                     dtype=dtypes[output_index],
-                    inner_fn=inner_fns[output_index],
+                    inner_fn=lambda idx, output_index=output_index: inner_fns[
+                        output_index
+                    ](idx, [0]),
                     ranges=size,
                 )
                 for output_index in range(len(dtypes))
@@ -2323,7 +2325,7 @@ class Scan(Loops):
         cls,
         device: torch.device,
         dtype: torch.dtype,
-        inner_fn: Callable[[Sequence[Expr]], OpsValue],
+        inner_fn: Callable[[Sequence[Expr], Sequence[Expr]], OpsValue],
         axis: int,
         pointwise_ranges: list[Integer],
         scan_ranges: list[Integer],
@@ -2332,7 +2334,7 @@ class Scan(Loops):
     ) -> tuple[ReductionHint, _IntLike]:
         # TODO: custom splitting heuristic for scan
         def wrapper_fn(idx: Sequence[Expr], reduction_idx: Sequence[Expr]) -> OpsValue:
-            return inner_fn([*idx[:axis], *reduction_idx, *idx[axis:]])
+            return inner_fn([*idx[:axis], *reduction_idx, *idx[axis:]], reduction_idx)
 
         return Reduction.num_splits(
             device=device,
