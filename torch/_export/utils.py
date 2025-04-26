@@ -986,10 +986,18 @@ def placeholder_naming_pass(
             base_name = _strip_name(spec.target).lower()
         base_name = re.sub(r"[^a-zA-Z0-9]", "_", base_name)
 
+        new_name = placeholder_prefixes[spec.kind] + base_name
+        if base_name in custom_meta:
+            # the keys in custom_meta are node names from `mod`,
+            # which is the base_name here.
+            # we need the new_name to for lookup later
+            custom_meta[new_name] = custom_meta[base_name]
+            del custom_meta[base_name]
+
         _rename_without_collisions(
             name_map,
             spec.arg.name,
-            placeholder_prefixes[spec.kind] + base_name,
+            new_name,
             is_placeholder=True,
         )
 
@@ -1007,7 +1015,7 @@ def placeholder_naming_pass(
         if node.op == "placeholder":
             assert node.name in name_map
             node.name = node.target = name_map[node.name]
-            if node.name in custom_meta:
+            if node.name in custom_meta and node.meta.get("custom") is None:
                 node.meta["custom"] = custom_meta[node.name]
             # if the constant obj is an input, we also need to update meta["val"]
             # because this is created before the placeholder naming pass
