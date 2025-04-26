@@ -6,6 +6,7 @@ import torch
 import torch.utils._pytree as pytree
 from torch._C import DispatchKey
 from torch._dispatch.python import suspend_functionalization
+from torch._higher_order_ops.cond import materialize_as_graph
 from torch._higher_order_ops.utils import (
     check_input_alias_and_mutation_return_ouputs,
     reenter_make_fx,
@@ -112,6 +113,17 @@ class BaseHOP(HigherOrderOperator, abc.ABC):
             return subgraph(*operands)
 
     def _call_Functionalize(self, ctx, subgraph, *operands, **kwargs):
+        from torch._higher_order_ops.auto_functionalize import do_auto_functionalize_v2
+
+        # invoke_quant has non-proxable argument of type InvokeQuant that
+        # we cannot generate schema for.
+        if self is not torch.ops.higher_order.invoke_quant_packed:
+            hop_schema = self.gen_schema(subgraph, *operands, **kwargs)
+            if hop_schema.is_mutable:
+                return do_auto_functionalize_v2(
+                    ctx.mode, self, (subgraph, *operands), kwargs
+                )
+
         unwrapped_operands = ctx.unwrap_tensors(operands)
         with ctx.redispatch_to_next():
             # We assume the subgraph doesn't mutate inputs and there is no aliasing.
@@ -122,17 +134,18 @@ class BaseHOP(HigherOrderOperator, abc.ABC):
             out = self(functionalized_subgraph, *unwrapped_operands, **kwargs)
         return ctx.wrap_tensors(out)
 
-    def gen_schema(self, *args, **kwargs):
+    def gen_schema(self, subgraph, *operands, **kwargs):
         from .schema import CFunctionSchemaGen, HopArgumentInfoGen
 
-        subgraph, *operands = args
+        if not isinstance(subgraph, torch.fx.GraphModule):
+            subgraph = materialize_as_graph(subgraph, operands)
 
         assert isinstance(
             subgraph, torch.fx.GraphModule
         ), f"NYI non GraphModule subgraph got {subgraph}"
 
         fake_args = [
-            ph.meta["example_value"]
+            ph.meta["example_value"] if "example_value" in ph.meta else ph.meta["val"]
             for ph in subgraph.graph.find_nodes(op="placeholder")
         ]
         (
