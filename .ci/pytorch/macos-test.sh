@@ -18,6 +18,9 @@ if [[ ! $(python -c "import torch; print(int(torch.backends.openmp.is_available(
 fi
 popd
 
+# enable debug asserts in serialization
+export TORCH_SERIALIZATION_DEBUG=1
+
 setup_test_python() {
   # The CircleCI worker hostname doesn't resolve to an address.
   # This environment variable makes ProcessGroupGloo default to
@@ -190,11 +193,19 @@ test_torchbench_perf() {
   TEST_REPORTS_DIR=$(pwd)/test/test-reports
   mkdir -p "$TEST_REPORTS_DIR"
 
+  local backend=eager
+  local dtype=notset
+  local device=mps
+
   echo "Setup complete, launching torchbench training performance run"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --backend eager --training --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
+  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py \
+    --performance --backend "$backend" --training --devices "$device" \
+    --output "$TEST_REPORTS_DIR/inductor_${backend}_torchbench_${dtype}_training_${device}_performance.csv"
 
   echo "Launching torchbench inference performance run"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --backend eager --inference --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
+  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py \
+    --performance --backend "$backend" --inference --devices "$device" \
+    --output "$TEST_REPORTS_DIR/inductor_${backend}_torchbench_${dtype}_inference_${device}_performance.csv"
 
   echo "Pytorch benchmark on mps device completed"
 }
@@ -209,26 +220,41 @@ test_torchbench_smoketest() {
 
   TEST_REPORTS_DIR=$(pwd)/test/test-reports
   mkdir -p "$TEST_REPORTS_DIR"
-  touch "$TEST_REPORTS_DIR"/torchbench_training.csv
-  touch "$TEST_REPORTS_DIR"/torchbench_inference.csv
 
-  echo "Setup complete, launching torchbench training performance run"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only hf_T5 --backend eager --training --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only llama --backend eager --training --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only BERT_pytorch --backend eager --training --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only dcgan --backend eager --training --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only hf_GPT2 --backend eager --training --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only yolov3 --backend eager --training --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only resnet152 --backend eager --training --devices mps --output "$TEST_REPORTS_DIR/torchbench_training.csv"
+  local device=mps
+  local models=(hf_T5 llama BERT_pytorch dcgan hf_GPT2 yolov3 resnet152 sam pytorch_unet stable_diffusion_text_encoder moco speech_transformer)
 
-  echo "Launching torchbench inference performance run"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only hf_T5 --backend eager --inference --devices mps --output "$TEST_REPORTS_DIR/torchbench_inference.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only llama --backend eager --inference --devices mps --output "$TEST_REPORTS_DIR/torchbench_inference.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only BERT_pytorch --backend eager --inference --devices mps --output "$TEST_REPORTS_DIR/torchbench_inference.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only dcgan --backend eager --inference --devices mps --output "$TEST_REPORTS_DIR/torchbench_inference.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only hf_GPT2 --backend eager --inference --devices mps --output "$TEST_REPORTS_DIR/torchbench_inference.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only yolov3 --backend eager --inference --devices mps --output "$TEST_REPORTS_DIR/torchbench_inference.csv"
-  PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py --performance --only resnet152 --backend eager --inference --devices mps --output "$TEST_REPORTS_DIR/torchbench_inference.csv"
+  for backend in eager inductor; do
+
+    for dtype in notset float16 bfloat16; do
+      echo "Launching torchbench inference performance run for backend ${backend} and dtype ${dtype}"
+      local dtype_arg="--${dtype}"
+      if [ "$dtype" == notset ]; then
+          dtype_arg="--float32"
+      fi
+      touch "$TEST_REPORTS_DIR/inductor_${backend}_torchbench_${dtype}_inference_${device}_performance.csv"
+      for model in "${models[@]}"; do
+        PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py \
+          --performance --only "$model" --backend "$backend" --inference --devices "$device" "$dtype_arg" \
+          --output "$TEST_REPORTS_DIR/inductor_${backend}_torchbench_${dtype}_inference_${device}_performance.csv" || true
+      done
+    done
+
+    for dtype in notset amp; do
+      echo "Launching torchbench training performance run for backend ${backend} and dtype ${dtype}"
+      touch "$TEST_REPORTS_DIR/inductor_${backend}_torchbench_${dtype}_training_${device}_performance.csv"
+      local dtype_arg="--${dtype}"
+      if [ "$dtype" == notset ]; then
+          dtype_arg="--float32"
+      fi
+      for model in "${models[@]}"; do
+        PYTHONPATH="$(pwd)"/torchbench python benchmarks/dynamo/torchbench.py \
+          --performance --only "$model" --backend "$backend" --training --devices "$device" "$dtype_arg" \
+          --output "$TEST_REPORTS_DIR/inductor_${backend}_torchbench_${dtype}_training_${device}_performance.csv" || true
+      done
+    done
+
+  done
 
   echo "Pytorch benchmark on mps device completed"
 }
@@ -267,25 +293,6 @@ test_timm_perf() {
 
 install_tlparse
 
-if [[ $TEST_CONFIG == *"test_mps"* ]]; then
-  if [[ $NUM_TEST_SHARDS -gt 1 ]]; then
-    test_python_shard "${SHARD_NUMBER}"
-    if [[ "${SHARD_NUMBER}" == 1 ]]; then
-      test_libtorch
-      test_custom_script_ops
-    elif [[ "${SHARD_NUMBER}" == 2 ]]; then
-      test_jit_hooks
-      test_custom_backend
-    fi
-  else
-    test_python_all
-    test_libtorch
-    test_custom_script_ops
-    test_jit_hooks
-    test_custom_backend
-  fi
-fi
-
 if [[ $TEST_CONFIG == *"perf_all"* ]]; then
   test_torchbench_perf
   test_hf_perf
@@ -298,4 +305,19 @@ elif [[ $TEST_CONFIG == *"perf_timm"* ]]; then
   test_timm_perf
 elif [[ $TEST_CONFIG == *"perf_smoketest"* ]]; then
   test_torchbench_smoketest
+elif [[ $NUM_TEST_SHARDS -gt 1 ]]; then
+  test_python_shard "${SHARD_NUMBER}"
+  if [[ "${SHARD_NUMBER}" == 1 ]]; then
+    test_libtorch
+    test_custom_script_ops
+  elif [[ "${SHARD_NUMBER}" == 2 ]]; then
+    test_jit_hooks
+    test_custom_backend
+  fi
+else
+  test_python_all
+  test_libtorch
+  test_custom_script_ops
+  test_jit_hooks
+  test_custom_backend
 fi
