@@ -386,14 +386,14 @@ class MemoryBudgetTest(TestCase):
             return out
 
         def g(x):
-            x = checkpoint(f, x)
-            x = checkpoint(f, x)
+            x = checkpoint(f, x, use_reentrant=False)
+            x = checkpoint(f, x, use_reentrant=False)
             return x
 
-        x = torch.randn(64, 1024, requires_grad=True, device='cuda')
+        x = torch.randn(64, 1024, requires_grad=True)
 
         def call():
-            return g(x)
+            return g(x).sum()
 
         eager_mem, eager_flops = get_mem_and_flops(call)
         # give the memory budget logic a value that should cause it to run,
