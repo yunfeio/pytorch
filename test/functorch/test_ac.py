@@ -4,11 +4,11 @@ import unittest
 from math import prod
 
 import torch
-from torch.utils.checkpoint import checkpoint
 import torch._functorch.config as config
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.inductor_utils import HAS_CUDA
 from torch.utils._triton import has_triton
+from torch.utils.checkpoint import checkpoint
 from torch.utils.flop_counter import FlopCounterMode, register_flop_formula
 
 
@@ -379,10 +379,10 @@ class MemoryBudgetTest(TestCase):
         # test that manual checkpoint boundaries are respected
         # when autoac is set
         def f(x):
-            tmp1 = torch.matmul(x, x.T) # [1024, 1024]
-            tmp1 = torch.matmul(tmp1, tmp1) # [1024, 1024]
-            tmp1 = torch.matmul(tmp1, tmp1) # [1024, 1024]
-            out = torch.matmul(tmp1, x)  # [1024, 64]
+            tmp1 = torch.matmul(x, x.T)
+            tmp1 = torch.matmul(tmp1, tmp1)
+            tmp1 = torch.matmul(tmp1, tmp1)
+            out = torch.matmul(tmp1, x)
             return out
 
         def g(x):
