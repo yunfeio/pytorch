@@ -6,7 +6,8 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
-from torch.distributed.tensor import DeviceMesh
+from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.tensor import DeviceMesh, distribute_tensor, DTensor, Shard
 from torch.distributed.tensor.debug import CommDebugMode
 from torch.distributed.tensor.experimental._attention import (
     _AttentionContextParallel,
@@ -17,6 +18,8 @@ from torch.distributed.tensor.experimental._attention import (
     _RotateMethod,
     context_parallel,
     context_parallel_unshard,
+    ContextParallelMode,
+    FlexAttentionContiguousSharder,
     set_rotate_method,
 )
 from torch.distributed.tensor.parallel import parallelize_module
@@ -435,6 +438,106 @@ class RingAttentionTest(DTensorTestBase):
                     c10d_functional.all_to_all_single: self.world_size * args.n_layers,
                 },
             )
+
+
+class RingFlexAttentionTest(DTensorTestBase):
+    @property
+    def world_size(self) -> int:
+        return 4
+
+    @skip_if_lt_x_gpu(4)
+    @with_comms
+    def test_ring_flex_attention(self) -> None:
+        def causal_mask(b, h, q_idx, kv_idx):
+            return q_idx >= kv_idx
+
+        from torch.nn.attention.flex_attention import create_block_mask, flex_attention
+
+        # Compile the flex_attention function
+        flex_attention = torch.compile(flex_attention, dynamic=False)
+        Q_BLOCK_SIZE_DEFAULT = 128
+        KV_BLOCK_SIZE_DEFAULT = Q_BLOCK_SIZE_DEFAULT
+
+        torch.cuda.manual_seed(10)
+        dtype = torch.float32
+        bs = 8
+        query_tokens = Q_BLOCK_SIZE_DEFAULT * self.world_size
+        context_tokens = KV_BLOCK_SIZE_DEFAULT * self.world_size
+        dim = 32
+        nheads = 8
+
+        q = torch.rand(
+            (bs, nheads, query_tokens, dim),
+            device=self.device_type,
+            dtype=dtype,
+            requires_grad=True,
+        )
+        k = torch.rand(
+            (bs, nheads, context_tokens, dim),
+            device=self.device_type,
+            dtype=dtype,
+            requires_grad=True,
+        )
+        v = torch.rand(
+            (bs, nheads, context_tokens, dim),
+            device=self.device_type,
+            dtype=dtype,
+            requires_grad=True,
+        )
+
+        block_mask = create_block_mask(
+            causal_mask,
+            B=bs,
+            H=nheads,
+            Q_LEN=query_tokens,
+            KV_LEN=context_tokens,
+            device=self.device_type,
+        )
+
+        out = flex_attention(q, k, v, block_mask=block_mask)
+
+        expect_out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+
+        torch.testing.assert_close(out, expect_out, atol=1e-1, rtol=1e-2)
+
+        # test flex attention on DTensor
+        device_mesh = init_device_mesh(
+            device_type=self.device_type,
+            mesh_shape=(self.world_size,),
+            mesh_dim_names=("cp",),
+        )
+
+        # shard the QKV tensors
+        sharding = Shard(2)
+        q_local = distribute_tensor(q, device_mesh, [sharding]).to_local()
+        k_local = distribute_tensor(k, device_mesh, [sharding]).to_local()
+        v_local = distribute_tensor(v, device_mesh, [sharding]).to_local()
+
+        # this is the block_mask created within the training step
+        block_mask_post_sharding = create_block_mask(
+            causal_mask,
+            B=bs,
+            H=nheads,
+            Q_LEN=q_local.size(2),
+            KV_LEN=k_local.size(2),
+            device=self.device_type,
+        )
+        # NOTE: flex_attention checks block_mask shape and input shape before
+        # calling into flex_attention_hop.
+        with ContextParallelMode(
+            device_mesh, block_mask, sharder=FlexAttentionContiguousSharder()
+        ):
+            out = flex_attention(
+                q_local, k_local, v_local, block_mask=block_mask_post_sharding
+            )
+
+        # all-gather the output
+        assert isinstance(out, torch.Tensor)
+        dist_out = DTensor.from_local(out, device_mesh, [Shard(2)])
+        assert isinstance(dist_out, DTensor)
+        torch.testing.assert_close(
+            dist_out.full_tensor(), expect_out, atol=1e-1, rtol=1e-2
+        )
 
 
 if __name__ == "__main__":
